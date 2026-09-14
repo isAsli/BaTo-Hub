@@ -1,0 +1,103 @@
+name: BaToHub release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zip gpg
+
+      - name: Build release package
+        run: |
+          zip -r BaToHub-0.0.1.zip . \
+            -x "*.git*" \
+            -x "__pycache__/*" \
+            -x "*.swp" \
+            -x ".DS_Store"
+
+      - name: Compute SHA-256
+        id: sha
+        run: |
+          echo "sha256=$(sha256sum BaToHub-0.0.1.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update manifest
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          with open("manifest.json", "r", encoding="utf-8") as f:
+              manifest = json.load(f)
+
+          manifest["sha256"] = sys.argv[1]
+          manifest["package"] = "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.1/BaToHub-0.0.1.zip"
+
+          with open("manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          PY
+          "${{ steps.sha.outputs.sha256 }}"
+
+      - name: Setup signing key
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$SIGNING_KEY" | gpg --batch --import
+          echo "KEY_ID=$(gpg --list-keys --with-colons | awk -F: '/^pub:/ {print $5; exit}')" >> "$GITHUB_ENV"
+
+      - name: Sign manifest
+        run: |
+          gpg --batch --no-tty --yes --default-key "$KEY_ID" --detach-sign --armor manifest.json
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.0.1
+          name: BaToHub v0.0.1
+          files: |
+            BaToHub-0.0.1.zip
+            manifest.json
+            manifest.json.asc
+          generate_release_notes: false
+          body: |
+            BaToHub v0.0.1
+
+            BaToHub is a central server management system written in Bash. It provides one entry point for managing server tools such as SSL, subscription templates, updates, and panel integrations through a modular plugin architecture.
+
+            Install:
+            - Run install.sh as root, or use the quick install command shown in the README.
+            - After install, run BaToHub.
+
+            This release includes:
+            - Core menu, configuration, logging, and integrity checks
+            - License validation hook for the configured license API
+            - Signed update manifest support with SHA-256 enforcement and rollback
+            - Rebecca integration for SSL, BaTo-Ui template, status, and change removal
+            - Module discovery through modules/<name>/module.json
+            - PasarGuard and Sanaei / 3X-UI stubs marked as disabled
+
+            Known limitations:
+            - Root access can still modify local files. Integrity checks detect tampering but do not make the system immutable.
+            - Update trust depends on the signing key and signature feed.
+            - License validation depends on network access to the configured API.
+            - Rebecca-related features depend on a locally installed Rebecca instance.
+
+            Security notes:
+            - Sensitive files are stored with restrictive permissions.
+            - Temporary files are created with mktemp.
+            - Shell sources use strict mode and quoted expansions.
+            - Update flow requires manifest signature verification.
