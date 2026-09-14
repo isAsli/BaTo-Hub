@@ -1,65 +1,79 @@
 #!/usr/bin/env bash
-set -u
-[ "$(id -u)" -eq 0 ] || { echo 'Root privileges are required.'; exit 1; }
+set -euo pipefail
 
-BASE="${INSTALL_DIR:-/opt/BaToHub}"
-CONF_DIR="${CONFIG_DIR:-/etc/BaToHub}"
-STATE_DIR="${STATE_DIR:-/var/lib/BaToHub}"
-LOG_DIR="${LOG_DIR:-/var/log/BaToHub}"
-GLOBAL_CMD="/usr/local/bin/BaToHub"
+need_root
+
+local _base _conf _state _log _cmd _input _hook
+_base="${INSTALL_DIR:-/opt/BaToHub}"
+_conf="${CONFIG_DIR:-/etc/BaToHub}"
+_state="${STATE_DIR:-/var/lib/BaToHub}"
+_log="${LOG_DIR:-/var/log/BaToHub}"
+_cmd="/usr/local/bin/BaToHub"
 
 echo
-printf '\033[1;33m%s\033[0m\n' 'BaToHub Uninstall — Review Before Proceeding'
-printf '\033[90m%s\033[0m\n' "
-This command will remove the BaToHub-managed files listed below.
-External applications such as Rebecca itself are NOT removed automatically.
-"
-printf '\033[1m%s\033[0m\n' 'The following BaToHub-owned locations will be removed:'
-printf '  %s\n' "$BASE" "${BASE}/bin" "${BASE}/core" "${BASE}/lib" "${BASE}/security" "${BASE}/modules" "${BASE}/templates"
-printf '  %s\n' "$CONF_DIR" "$STATE_DIR" "$LOG_DIR"
-printf '  %s\n' "$GLOBAL_CMD"
+info "BaToHub uninstall - review before proceeding."
+info ""
+info "This command removes BaToHub-managed files listed below."
+info "External applications such as Rebecca itself are not removed automatically."
 echo
-if ! read -r -p 'Type REMOVE to continue: ' _input; then
-  echo 'Cancelled.'
+info "The following BaToHub-owned locations will be removed:"
+info "  $_base"
+info "  $_base/bin"
+info "  $_base/core"
+info "  $_base/lib"
+info "  $_base/security"
+info "  $_base/modules"
+info "  $_base/templates"
+info "  $_conf"
+info "  $_state"
+info "  $_log"
+info "  $_cmd"
+echo
+
+if ! read -r -p "Type REMOVE to continue: " _input; then
+  echo "Cancelled."
   exit 0
 fi
 
-if [ "$_input" != "REMOVE" ]; then
-  echo 'Cancelled.'
+if [ "${_input:-}" != "REMOVE" ]; then
+  echo "Cancelled."
   exit 0
 fi
 
 if [ -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh ]; then
   echo
-  printf '\033[33m%s\033[0m\n' 'Optional: remove the BaToHub Certbot renewal hook? [y/N]'
-  read -r -p '> ' _hook
-  if [ "$_hook" = "y" ] || [ "$_hook" = "Y" ]; then
+  warn "Optional: remove the BaToHub Certbot renewal hook? [y/N]"
+  if ! read -r -p "> " _hook; then
+    echo "Cancelled."
+    exit 0
+  fi
+  if [ "${_hook:-}" = "y" ] || [ "${_hook:-}" = "Y" ]; then
     rm -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh
-    echo 'Removed Certbot renewal hook.'
+    info "Removed Certbot renewal hook."
   else
-    echo 'Certbot renewal hook left in place.'
+    info "Certbot renewal hook left in place."
   fi
 fi
 
-if [ -d "$BASE" ]; then
-  rm -rf "$BASE"
+if [ -d "$_base" ]; then
+  rm -rf "$_base"
 fi
 
-if [ -d "$CONF_DIR" ]; then
-  rm -rf "$CONF_DIR"
+if [ -d "$_conf" ]; then
+  rm -rf "$_conf"
 fi
 
-if [ -d "$STATE_DIR" ]; then
-  rm -rf "$STATE_DIR"
+if [ -d "$_state" ]; then
+  rm -rf "$_state"
 fi
 
-if [ -d "$LOG_DIR" ]; then
-  rm -rf "$LOG_DIR"
+if [ -d "$_log" ]; then
+  rm -rf "$_log"
 fi
 
-if [ -L "$GLOBAL_CMD" ] || [ -f "$GLOBAL_CMD" ]; then
-  rm -f "$GLOBAL_CMD"
+if [ -L "$_cmd" ] || [ -f "$_cmd" ]; then
+  rm -f "$_cmd"
 fi
 
 echo
-printf '\033[32m%s\033[0m\n' 'BaToHub removal finished.'
+info "BaToHub removal finished."

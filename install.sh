@@ -1,18 +1,56 @@
 #!/usr/bin/env bash
-set -u
-[ "$(id -u)" -eq 0 ] || { echo 'Root privileges are required.'; exit 1; }
-BASE=/opt/batohub
+set -euo pipefail
+
+need_root
+
+BASE="${INSTALL_DIR:-/opt/batohub}"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils certbot >/dev/null
+
+echo
+info "BaToHub install - starting."
+
+if ! need_cmds curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils; then
+  err "One or more required commands are missing. Install them and retry."
+  exit 1
+fi
+
+if ! apt-get update -qq; then
+  err "apt-get update failed."
+  exit 1
+fi
+
+if ! apt-get install -y -qq curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils certbot; then
+  err "Required package installation failed."
+  exit 1
+fi
+
 install -d -m 750 /etc/batohub /var/lib/batohub /var/log/batohub "$BASE"
-cp -a "$SRC_DIR/." "$BASE/"
-cp "$SRC_DIR/config/batohub.conf" /etc/batohub/batohub.conf
+
+if [ ! -f /etc/batohub/batohub.conf ]; then
+  cp "$SRC_DIR/config/batohub.conf" /etc/batohub/batohub.conf
+else
+  info "Existing /etc/batohub/batohub.conf preserved."
+fi
+
 chmod 600 /etc/batohub/batohub.conf
 chown -R root:root "$BASE" /etc/batohub /var/lib/batohub /var/log/batohub
-chmod +x "$BASE/bin/"* "$BASE/core/"*.sh "$BASE/lib/"*.sh "$BASE/security/"*.sh "$BASE/modules/rebecca/ssl/"*.sh "$BASE/modules/rebecca/templates/"*.sh
-ln -sfn "$BASE/bin/batohub" /usr/local/bin/batohub
-source "$BASE/security/integrity.sh"
+
+find "$BASE/bin" "$BASE/core" "$BASE/lib" "$BASE/security" \
+  "$BASE/modules/rebecca/ssl" "$BASE/modules/rebecca/templates" \
+  -type f -name '*.sh' -exec chmod +x {} + || true
+
+if [ ! -d /usr/local/bin ]; then
+  err "/usr/local/bin does not exist."
+  exit 1
+fi
+
+BATOHUB_CMD="${GLOBAL_CMD_NAME:-/usr/local/bin/BaToHub}"
+ln -sfn "$BASE/bin/batohub" "$BATOHUB_CMD"
+
+. "$BASE/security/integrity.sh"
 write_integrity
-exec /usr/local/bin/batohub
+
+echo
+info "BaToHub installed."
+info "Run: BaToHub"

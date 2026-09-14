@@ -1,0 +1,9 @@
+{
+  "name": "rebecca",
+  "version": "0.0.1",
+  "description": "Rebecca panel integration for SSL, subscription template, status, update, and BaToHub change removal.",
+  "status": "active",
+  "path": "modules/rebecca",
+  "entry": "modules/rebecca/rebecca_core.sh",
+  "dependencies": []
+}

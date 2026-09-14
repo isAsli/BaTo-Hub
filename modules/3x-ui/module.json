@@ -1,0 +1,9 @@
+{
+  "name": "3x-ui",
+  "version": "0.0.0",
+  "description": "Not implemented in this release.",
+  "status": "disabled",
+  "path": "modules/3x-ui",
+  "entry": "",
+  "dependencies": []
+}

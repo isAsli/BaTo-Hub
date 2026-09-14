@@ -1,7 +1,7 @@
 {
   "version": "0.0.1",
-  "package": "https://github.com/BaToHub/BaToHub/releases/download/v0.0.1/BaToHub-0.0.1.zip",
-  "sha256": "PLACEHOLDER",
+  "package": "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.1/BaToHub-0.0.1.zip",
+  "sha256": "",
   "app": "BaToHub",
   "product": "batohub",
   "min_version": "0.0.0",

@@ -1,2 +1,9 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+if [ ! -f /opt/batohub/core/main.sh ]; then
+  err "BaToHub is not installed or the core file is missing."
+  exit 1
+fi
+
 exec /opt/batohub/core/main.sh "$@"

@@ -1,0 +1,7 @@
+{
+  "name": "batohub",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Central server management system for BaTo server tools and integrations",
+  "scripts": {}
+}
