@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+[ "$(id -u)" -eq 0 ] || exit 1
+rm -f /usr/local/bin/batohub
+rm -rf /opt/batohub
+rm -rf /etc/batohub /var/lib/batohub /var/log/batohub
