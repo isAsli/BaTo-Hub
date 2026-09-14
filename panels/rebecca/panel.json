@@ -1,0 +1,13 @@
+{
+  "name": "rebecca",
+  "display_name": "Rebecca",
+  "version": "0.0.2",
+  "description": "Rebecca panel integration for SSL, subscription templates, status, and update.",
+  "service_name": "rebecca",
+  "default_port": "8080",
+  "default_path": "/opt/rebecca",
+  "config_paths": ["/opt/rebecca/.env"],
+  "requirements": ["curl", "ca-certificates", "openssl", "certbot"],
+  "ssl_method": "certbot",
+  "template_method": "copy"
+}

@@ -1,32 +1,30 @@
 {
-  "version": "0.0.1",
-  "package": "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.1/BaToHub-0.0.1.zip",
-  "sha256": "",
+  "version": "0.0.2",
   "app": "BaToHub",
-  "product": "batohub",
-  "min_version": "0.0.0",
-  "release_notes": "Initial BaToHub release.\n\nActive features:\n- BaToHub core, config, logging, and integrity checks\n- License validation hook for OpenLicense API\n- Central update via manifest + GitHub release check\n- Server status, tools, license, settings, logs, repair, uninstall\n- Rebecca integration: SSL, BaTo-Ui template, status, update, remove changes\n- BaTo-Ui subscription page template (Persian RTL, responsive, dark mode capable)\n\nNot active yet:\n- PasarGuard integration\n- Sanaei / 3X-UI integration\n",
-  "modules": {
-    "rebecca": {
-      "version": "0.0.1",
-      "status": "active"
+  "package": "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.2/BaToHub-0.0.2.zip",
+  "sha256": "",
+  "release_url": "https://github.com/isAsli/BaTo-Hub/releases/tag/v0.0.2",
+  "gpg_signature_file": "manifest.json.asc",
+  "panels": [
+    {
+      "name": "rebecca",
+      "display_name": "Rebecca",
+      "version": "0.0.2",
+      "status": "supported"
     },
-    "pasarguard": {
-      "version": "",
-      "status": "disabled"
+    {
+      "name": "pasarguard",
+      "display_name": "PasarGuard",
+      "version": "0.0.2",
+      "status": "supported"
     },
-    "3x-ui": {
-      "version": "",
-      "status": "disabled"
+    {
+      "name": "3x-ui",
+      "display_name": "3X-UI (Sanaei)",
+      "version": "0.0.2",
+      "status": "supported"
     }
-  },
-  "templates": {
-    "rebecca": {
-      "name": "BaTo-Ui",
-      "source": "templates/rebecca/subscription/index.html",
-      "installed_path": "/opt/rebecca/bato-templates/subscription/index.html"
-    }
-  },
+  ],
   "supported": {
     "os": ["Ubuntu 22.04", "Ubuntu 24.04"],
     "arch": ["amd64", "arm64"]

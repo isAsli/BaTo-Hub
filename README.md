@@ -1,43 +1,58 @@
 # BaToHub
 
-BaToHub is a central server management system written in Bash. It provides one entry point for managing server tools such as SSL, subscription templates, updates, and panel integrations through a modular plugin architecture.
+BaToHub is a Bash-based TUI for managing multiple VPN and proxy panels from one server.
 
-The main command is `BaToHub`. It loads central configuration, performs integrity and license checks, and opens a hierarchical menu for the installed modules.
+## What BaToHub is and what it is not
 
-## Project description
+BaToHub is a single interface for managing multiple panels from one server.
 
-BaToHub is designed to be installed once on a server and extended over time. The core manages configuration, logging, update verification, license validation, repair, and uninstall behavior. Modules add support for specific panels and tools without changing the core.
+BaToHub is not:
+- a panel installer
+- a panel itself
+- a paid service
+- a license enforcement system
+- telemetry software
+- a remote code execution platform
 
-The repository is intended for Ubuntu 22.04 and Ubuntu 24.04 on amd64 and arm64. Other environments may work, but they are not the primary target.
+BaToHub only manages its own changes. It does not remove panels or delete panel data.
 
-## Feature list
+## Supported panels
+
+Supported panels in this release:
+- Rebecca
+- PasarGuard
+- 3X-UI (Sanaei)
+
+Marzban is not supported.
+
+## Features
 
 Core:
-- Central configuration and state directory
-- Integrity manifest for managed files
-- Logging to `/var/log/batohub`
-- License validation hook
-- Update system with manifest verification and rollback
-- Server information and status
-- Settings view
-- Logs view
-- Repair actions
-- Uninstall with confirmation
+- Panel-first first-run selection
+- Panel persistence in `/etc/batohub/panel.conf`
+- Panel-specific main menu
+- Server information
+- BaToHub self-update from GitHub
+- Integrity checks for managed files
+- Backup, restore, and import
+- Uninstall that keeps panels intact
+- Secure state storage permissions
 
-Modules:
-- Module discovery through `modules/<name>/module.json`
-- Each module exposes install, uninstall, status, update, and menu behavior
-- Disabled modules exist as labeled stubs, not broken code
+Panel management:
+- Panel detection and version reporting
+- Panel status
+- Panel-specific SSL management
+- Panel-specific subscription templates
+- Panel logs
+- Panel update and status
 
-Active integration:
-- Rebecca
-  - SSL installation, renewal, status, and removal
-  - BaTo-Ui subscription template install, status, and removal
-  - Rebecca status and BaToHub change removal
-
-Not active in this release:
-- PasarGuard
-- Sanaei / 3X-UI
+Security and quality:
+- `set -euo pipefail` across shell sources
+- Quoted variable expansions
+- Temporary files from `mktemp`
+- Locked shared state where practical
+- No contact handle in source code
+- No telemetry or network calls in the core
 
 ## Architecture
 
@@ -48,21 +63,26 @@ Not active in this release:
     uninstall
   core/
     main.sh
-    license.sh
-    update.sh
     module_loader.sh
+    panel_manager.sh
+    ssl_manager.sh
+    template_manager.sh
+    backup_manager.sh
+    update.sh
   lib/
     common.sh
   security/
     integrity.sh
-  modules/
-    <module>/
-      module.json
+  panels/
+    <panel>/
+      panel.json
       module.sh
-      ...submodules...
+      ssl/module.sh
+      templates/module.sh
+      templates/subscription/index.html
+      update/module.sh
+      menu/module.sh
   templates/
-    <module>/
-      ...
   VERSION
   manifest.json
 ```
@@ -70,22 +90,22 @@ Not active in this release:
 System paths:
 ```
 /etc/batohub/
+  panel.conf
   batohub.conf
   integrity.sha256
-  license.json
-  .license_key
 /var/lib/batohub/
 /var/log/batohub/
 /usr/local/bin/BaToHub -> /opt/BaToHub/bin/batohub
 ```
 
 Data flow:
-1. `BaToHub` runs `bin/batohub`.
-2. `bin/batohub` executes `core/main.sh`.
-3. `main.sh` loads `lib/common.sh` and the configured config file.
-4. `main.sh` calls license validation before opening the menu.
-5. Module discovery loads every `modules/*/module.json`.
-6. Active modules are loaded and exposed through the menu.
+1. `BaToHub` runs `bin/batohub`
+2. `bin/batohub` runs `core/main.sh`
+3. `main.sh` loads panel discovery from `panels/`
+4. If no panel is configured, first-run panel selection is shown
+5. Panel selection is persisted to `panel.conf`
+6. The panel-specific menu is loaded
+7. Operations are routed through panel modules
 
 ## Requirements
 
@@ -97,7 +117,7 @@ Architectures:
 - amd64
 - arm64
 
-Required commands:
+Dependencies:
 - bash
 - curl
 - ca-certificates
@@ -105,18 +125,10 @@ Required commands:
 - unzip
 - rsync
 - python3
-- whiptail
-- dnsutils
-- iproute2
-- procps
-- coreutils
-- certbot
+- jq
+- certbot for Rebecca SSL
 
-Optional:
-- systemctl
-- gpg
-
-Root access is required for installation and for most management actions.
+Root access is required for installation and most management actions.
 
 ## Quick install
 
@@ -127,14 +139,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/isAsli/BaTo-Hub/main/install
 ```
 
 What that does:
-- Checks for root privileges
-- Installs required system packages
-- Creates the BaToHub directory structure under `/opt/BaToHub`
-- Copies the source tree
-- Writes central configuration
-- Sets restrictive permissions
-- Creates the `BaToHub` command
-- Writes the integrity manifest
+- checks for root privileges
+- installs required system packages
+- creates the main directories under `/opt/BaToHub`
+- sets permissions
+- installs the global command
+- writes the integrity manifest
 
 After install, run:
 
@@ -144,37 +154,35 @@ BaToHub
 
 ## Manual install
 
-1. Download the source tree to a temporary location on the target server.
-2. Run `install.sh` as root from that directory.
-3. Verify that `/usr/local/bin/BaToHub` points to `/opt/BaToHub/bin/batohub`.
-4. Run `BaToHub` and complete the license step if required.
-5. For Rebecca integration, install the BaTo-Ui template from the Tools menu if Rebecca is present on the server.
+1. Download the source to a temporary location on the server.
+2. Run `install.sh` as root.
+3. Verify the global command exists.
+4. Run `BaToHub` and select a panel if needed.
 
-Example steps:
+Example:
 
 ```bash
 apt-get update
-apt-get install -y curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils certbot
+apt-get install -y curl ca-certificates openssl unzip rsync python3 jq certbot
 bash ./install.sh
 BaToHub
 ```
 
 ## Post-install verification
 
-Check the following after installation:
-- `BaToHub` starts without errors
-- The version reported by BaToHub matches `/opt/BaToHub/VERSION`
+After installation, verify:
+- `BaToHub` starts
+- the version matches `VERSION`
+- `/etc/batohub/panel.conf` is not world-readable
 - `/etc/batohub/batohub.conf` is not world-readable
-- `/etc/batohub/integrity.sha256` exists and passes `sha256sum -c`
-- `/var/log/batohub/batohub.log` exists
-- Disabled modules appear as unavailable and are not executed as active code
+- `/etc/batohub/integrity.sha256` exists
+- `/var/lib/batohub` and `/var/log/batohub` have correct permissions
 
 ## Quick start
 
 1. Run `BaToHub`.
-2. Complete license validation if prompted.
-3. Use the main menu to review update status, server info, and tools.
-4. If Rebecca is installed, open Tools, then Rebecca, then install BaTo-Ui or manage SSL as needed.
+2. Select a panel if prompted.
+3. Use the panel menu for SSL, templates, update, logs, backup, restore, or import.
 
 ## Command reference
 
@@ -187,151 +195,201 @@ Check the following after installation:
 
 Menu actions are interactive. Destructive actions require an explicit confirmation phrase.
 
-## Module system
+## Panel system
 
-Every module is a directory under `modules/<name>` with at least:
-- `module.json`
+Every panel is a directory under `panels/<name>` with at least:
+- `panel.json`
 - `module.sh`
 
-`module.json` describes the module:
+`panel.json` describes the panel:
 
 ```json
 {
   "name": "example",
-  "version": "0.0.1",
-  "description": "Example module",
-  "status": "active",
-  "path": "modules/example",
-  "entry": "modules/example/module.sh",
-  "dependencies": []
+  "display_name": "Example",
+  "version": "0.0.2",
+  "description": "Example panel",
+  "service_name": "example",
+  "default_port": "80",
+  "default_path": "/opt/example",
+  "config_paths": ["/opt/example/.env"],
+  "requirements": ["curl", "ca-certificates", "openssl"],
+  "ssl_method": "manual",
+  "template_method": "disabled"
 }
 ```
 
-`module.sh` defines the interface functions used by the core:
-- `<name>_menu`
-- `<name>_install`
-- `<name>_uninstall`
-- `<name>_status`
-- `<name>_update`
+`module.sh` exposes the panel interface:
+- `panel_detect`
+- `panel_version`
+- `panel_status`
+- `panel_install`
+- `panel_uninstall`
+- `panel_ssl_issue`
+- `panel_ssl_renew`
+- `panel_template_apply`
+- `panel_template_remove`
+- `panel_logs`
+- `panel_update`
+- `panel_menu`
 
-To add a new module:
+Example of writing a new panel:
 
-1. Create `modules/<name>/module.json`.
-2. Create `modules/<name>/module.sh`.
-3. Implement the five interface functions.
-4. If the module is active, set `"status": "active"` in its `module.json`.
-5. Run `install.sh` or update the installation if needed.
-
-Module discovery is automatic. The core does not need to be edited for every new module, as long as the naming convention is followed.
+1. Create `panels/<name>/panel.json`.
+2. Create `panels/<name>/module.sh`.
+3. Implement the required functions.
+4. Add `ssl/module.sh` and `templates/module.sh` if the panel supports them.
+5. Run `install.sh` after adding the panel.
 
 ## Configuration reference
 
-`/etc/batohub/batohub.conf` is sourced by the library. Relevant keys:
+### batohub.conf
 
 | Key | Description | Default |
 | --- | --- | --- |
 | `APP_NAME` | Application name | `BaToHub` |
-| `APP_VERSION` | Application version | `0.0.1` |
-| `LICENSE_API` | License validation endpoint | configured centrally |
-| `LICENSE_PRODUCT` | Product identifier sent during validation | `batohub` |
-| `SUPPORT` | Support contact shown on license failure | `@BaTo_Help` |
-| `CHANNEL` | Channel contact | `@BaToHub` |
-| `GITHUB_REPO` | GitHub repository used for release checks | `isAsli/BaTo-Hub` |
-| `UPDATE_MANIFEST` | Remote manifest URL for updates | configured centrally |
-| `MANIFEST_SIGNATURE` | Remote manifest signature URL | configured centrally |
+| `APP_VERSION` | Application version | `0.0.2` |
+| `GITHUB_REPO` | GitHub repository | `isAsli/BaTo-Hub` |
+| `GITHUB_BRANCH` | Branch used for update | `main` |
+| `UPDATE_MANIFEST` | Manifest URL used for update checks | configured centrally |
 | `INSTALL_DIR` | Main application directory | `/opt/batohub` |
-| `STATE_DIR` | Persistent state directory | `/var/lib/batohub` |
 | `CONFIG_DIR` | Configuration directory | `/etc/batohub` |
+| `STATE_DIR` | Persistent state directory | `/var/lib/batohub` |
 | `LOG_DIR` | Log directory | `/var/log/batohub` |
-| `REBECCA_DIR` | Rebecca installation directory expected by BaToHub | `/opt/rebecca` |
-| `TEMPLATE_ROOT` | Template root written into Rebecca env | `/opt/rebecca/bato-templates` |
-| `GLOBAL_CMD_NAME` | Global command path created by installer | `/usr/local/bin/BaToHub` |
+| `STATE_DIR_MODE` | Mode for state directories | `750` |
+| `BACKUP_DIR` | Backup directory | `/var/lib/batohub/backups` |
+| `BACKUP_KEEP` | Number of backups to keep | `5` |
+| `GLOBAL_CMD_NAME` | Global command path | `/usr/local/bin/BaToHub` |
 
-## Update mechanism
+### panel.conf
 
-Updates are checked against a remote manifest. The expected flow is:
-1. Download the manifest over HTTPS.
-2. Verify the manifest signature with GPG.
-3. Read version, package URL, and SHA-256 from the manifest.
-4. Download the package.
-5. Verify the package SHA-256.
-6. Back up the current installation.
-7. Extract the new package.
-8. Replace managed files.
-9. Rebuild the integrity manifest.
-10. Verify the result.
-11. Roll back if verification fails.
+| Key | Description | Example |
+| --- | --- | --- |
+| `PANEL` | Selected panel name | `rebecca` |
+| `PANEL_PORT` | Panel port | `8080` |
+| `PANEL_PATH` | Panel path | `/opt/rebecca` |
+| `PANEL_DOMAIN` | Panel domain if known | `example.test` |
+| `INSTALLED_AT` | Installation timestamp | `2026-09-14 10:00:00` |
 
-A manifest signature is required for update trust. If signature verification fails, update is skipped.
+## Backup, restore, and import
 
-GitHub release information may be checked for reference, but it does not override the signed manifest flow.
+Backup includes:
+- `/etc/batohub`
+- `/var/lib/batohub`
+- `/var/log/batohub`
+- panel-specific config paths
+- SSL certificates and keys used by the panel
+- templates applied by BaToHub
+- metadata with version, panel name, panel version, timestamp, and managed files
+
+Backup format:
+- gzip-compressed tarball
+- stored in `/var/lib/batohub/backups/<timestamp>.tar.gz`
+- checksum file alongside
+- permissions 600, owner root:root
+- rotation keeps the configured number of backups
+
+Restore:
+- list backups with date and size
+- verify checksum before restoring
+- extract to a temp directory
+- move files into place transactionally
+- create a safety backup before restoring
+- do not overwrite files outside declared paths
+
+Import:
+- import a backup file from an external path
+- verify checksum if available
+- use the same transactional restore flow
+
+## Self-update
+
+Source of truth is the GitHub repository `isAsli/BaTo-Hub`, branch `main`.
+
+Update behavior:
+- use git when available, otherwise fall back to HTTPS checks
+- take a full backup before updating
+- compare local files against remote
+- add new remote files
+- remove remote-removed files only if they are not user-managed
+- replace modified files
+- leave unchanged files untouched
+
+Files that must never be touched by update:
+- `/etc/batohub/panel.conf`
+- `/etc/batohub/batohub.conf`
+- `/var/lib/batohub`
+- `/var/log/batohub`
+- any path declared as user-managed in panel configuration
+
+After update:
+- run `bash -n` on shell files
+- verify panel discovery still works
+- print a diff summary
+- roll back automatically if verification fails
 
 ## Security model
 
-BaToHub uses several defensive measures:
-- Centralized configuration with restrictive permissions
-- Integrity manifest for managed files
-- Locked writes for shared state where practical
-- Temporary files created with `mktemp`
-- Quoted variable expansions
-- Input validation for prompts and module names
-- Restricted permissions on private keys and sensitive config
-- Logging in plain text without terminal escapes
+BaToHub uses:
+- centralized configuration with restrictive permissions
+- integrity manifest for managed files
+- locked writes for shared state where practical
+- `mktemp` for temporary files
+- quoted expansions and strict shell mode
+- restricted permissions on private keys and sensitive config
+- plain-text logging without terminal escapes
 
 Limitations:
-- Root access can modify or delete local files. Integrity checks detect changes; they do not make the system physically immutable.
-- Remote update trust depends on the signing key and the signature feed being correct.
-- License validation depends on network access to the configured API.
-- SSL management depends on Certbot and the availability of port 80 or an alternate challenge.
-- Third-party updaters, such as the Rebecca binary updater, are executed only after download and are subject to the trust of their source.
-
-Do not assume the system is unmodifiable. It is designed to detect tampering and to make unsafe changes more difficult.
+- root access can modify or delete local files
+- SSL for Rebecca depends on Certbot and port 80 availability
+- update trust depends on the repository branch and presence of git
+- third-party panels are outside BaToHub control unless the integration code itself is affected
 
 ## Logging and troubleshooting
 
 Logs are written to:
-```
-/var/log/batohub/batohub.log
-```
-
-Each entry includes a timestamp and the action or error.
+`/var/log/batohub/batohub.log`
 
 Common checks:
-- Verify the installation path exists
-- Verify permissions on `/etc/batohub` and `/var/log/batohub`
-- Verify the integrity manifest
-- Review the log file for recent errors
-- Check whether required commands are installed
-- Check whether port 80 is available before SSL operations
-- Confirm the Rebecca `.env` file exists before template or SSL changes
-
-If the update fails:
-- The installer keeps a backup directory with a timestamp
-- Review the log for the exact failure point
-- Re-run update only after confirming the package source is trusted
+- verify permissions on `/etc/batohub`, `/var/lib/batohub`, and `/var/log/batohub`
+- verify `panel.conf` and `batohub.conf`
+- run the integrity check
+- review logs for recent errors
+- check whether required commands exist
+- for Rebecca SSL, check port 80 availability
 
 ## Uninstall
 
-Run the uninstall command from the BaToHub menu or directly:
+Run the uninstall command from the menu or directly:
 
 ```bash
 /opt/BaToHub/bin/uninstall
 ```
 
 The uninstaller:
-- Shows the files and directories that will be removed
-- Asks for confirmation
-- Optionally removes the BaToHub Certbot renewal hook
-- Removes BaToHub-owned files
-- Does not remove Rebecca itself
+- shows what will be removed
+- asks for confirmation
+- removes BaToHub-owned files
+- keeps panels and panel data intact
 
 ## License
 
-BaToHub is provided with a centralized license validation model. The product identifier used for validation is `batohub`.
+BaToHub is free and open source software released under the GNU General Public License version 3.
 
-If license validation fails, contact the support address shown by the interface.
+See `LICENSE` for the full license text.
 
-## Author contact
+https://www.gnu.org/licenses/gpl-3.0.html
 
-Support: @BaTo_Help
-Channel: @BaToHub
+## Modification and redistribution policy
+
+Any use, modification, fork, or redistribution must comply with GPL-3.0 in full and must preserve the original copyright notice, the project name BaToHub, and the original repository URL.
+
+Custom or proprietary versions are not permitted under this license. Anyone needing a custom version must contact @DatPHP.
+
+## Support and contact
+
+For support, bug reports, and ideas, contact @DatPHP.
+
+## Credits
+
+Copyright (C) BaToHub

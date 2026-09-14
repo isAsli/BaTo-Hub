@@ -4,7 +4,7 @@ set -euo pipefail
 CFG="${CONFIG_DIR:-/etc/batohub}/batohub.conf"
 [ -f "$CFG" ] && . "$CFG"
 
-APP_VERSION="${APP_VERSION:-0.0.1}"
+APP_VERSION="${APP_VERSION:-0.0.2}"
 if [ -f "${INSTALL_DIR:-/opt/batohub}/VERSION" ]; then
   APP_VERSION="$(cat "${INSTALL_DIR:-/opt/batohub}/VERSION" | sed -n '1p' | tr -d '[:space:]')"
 fi
@@ -14,7 +14,6 @@ LOG_FILE="${LOG_DIR}/batohub.log"
 
 mkdir -p "$LOG_DIR" 2>/dev/null || true
 
-# Log in plain text only. No terminal escapes in logs.
 log() {
   printf '[%s] %s\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE" 2>/dev/null || true
 }
@@ -45,7 +44,6 @@ ok() {
   printf '%s\n' "OK: $*" >&2
 }
 
-# run logs the command and the exit status.
 run_cmd() {
   log "RUN $*"
   if "$@"; then
@@ -80,7 +78,6 @@ need_cmds() {
   return "$missing"
 }
 
-# Safe temporary file, always cleaned by caller.
 mktemp_file() {
   local suffix="${1:-}"
   if [ -n "$suffix" ]; then
@@ -90,12 +87,10 @@ mktemp_file() {
   fi
 }
 
-# Safe temporary directory.
 mktemp_dir() {
   mktemp -d "/tmp/batohub.XXXXXX"
 }
 
-# Acquire a lock for a given lock file path.
 lock_acquire() {
   local lockfile="$1"
   local fd="${2:-200}"
@@ -105,13 +100,11 @@ lock_acquire() {
   printf '%s\n' "$fd"
 }
 
-# Release a lock by closing the fd.
 lock_release() {
   local fd="${1:-200}"
   exec {fd}>&-
 }
 
-# Read-only JSON value getter.
 json_get() {
   local file="$1"
   local path="$2"
@@ -138,23 +131,6 @@ except Exception:
 PY
 }
 
-# Build a JSON string from key/value pairs safely for curl payloads.
-json_encode() {
-  python3 - <<'PY'
-import json
-import sys
-
-data = {}
-for arg in sys.argv[1:]:
-    if "=" in arg:
-        k, v = arg.split("=", 1)
-        data[k] = v
-print(json.dumps(data))
-PY
-  "$@"
-}
-
-# Trim whitespace from a string.
 trim() {
   local value="$1"
   value="${value#"${value%%[![:space:]]*}"}"
@@ -162,12 +138,31 @@ trim() {
   printf '%s' "$value"
 }
 
-# Reject control characters in a value.
 sanitize_shell_text() {
   local value="$1"
   if [ -z "$value" ]; then
     printf ''
     return
   fi
-  printf '%s' "$value" | tr -d '[:cntrl:]' | sed 's/[[:space:]][[:space:]]*/*/g'
+  printf '%s' "$value" | tr -d '[:cntrl:]'
+}
+
+write_protected_file() {
+  local target="$1"
+  local content="$2"
+  local tmp
+  tmp=$(mktemp_file "protected")
+  printf '%s\n' "$content" > "$tmp"
+  chmod 600 "$tmp" 2>/dev/null || true
+  chown root:root "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$target"
+  chmod 600 "$target" 2>/dev/null || true
+  chown root:root "$target" 2>/dev/null || true
+}
+
+read_protected_file() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    cat "$file"
+  fi
 }

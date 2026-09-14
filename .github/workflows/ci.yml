@@ -17,7 +17,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq shellcheck shfmt
+          sudo apt-get install -y -qq shellcheck shfmt jq
 
       - name: Shell syntax
         run: |
@@ -43,3 +43,50 @@ jobs:
             exit 1
           fi
           echo "Format OK"
+
+      - name: Panel metadata
+        run: |
+          for f in panels/*/panel.json; do
+            test -f "$f" || { echo "Missing panel.json: $f"; exit 1; }
+            jq empty "$f" || { echo "Invalid panel.json: $f"; exit 1; }
+          done
+          echo "Panel metadata OK"
+
+      - name: Panel functions
+        run: |
+          for module in panels/*/module.sh; do
+            test -f "$module" || continue
+            grep -qE '^[[:space:]]*panel_detect[[:space:]]*\(\)' "$module" || { echo "Missing panel_detect: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_version[[:space:]]*\(\)' "$module" || { echo "Missing panel_version: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_status[[:space:]]*\(\)' "$module" || { echo "Missing panel_status: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_install[[:space:]]*\(\)' "$module" || { echo "Missing panel_install: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_uninstall[[:space:]]*\(\)' "$module" || { echo "Missing panel_uninstall: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_ssl_issue[[:space:]]*\(\)' "$module" || { echo "Missing panel_ssl_issue: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_ssl_renew[[:space:]]*\(\)' "$module" || { echo "Missing panel_ssl_renew: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_template_apply[[:space:]]*\(\)' "$module" || { echo "Missing panel_template_apply: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_template_remove[[:space:]]*\(\)' "$module" || { echo "Missing panel_template_remove: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_logs[[:space:]]*\(\)' "$module" || { echo "Missing panel_logs: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_update[[:space:]]*\(\)' "$module" || { echo "Missing panel_update: $module"; exit 1; }
+            grep -qE '^[[:space:]]*panel_menu[[:space:]]*\(\)' "$module" || { echo "Missing panel_menu: $module"; exit 1; }
+          done
+          echo "Panel functions OK"
+
+      - name: Source code contact check
+        run: |
+          bad=$(grep -RIn --exclude-dir=.git -E '@[A-Za-z0-9_]+' --include='*.sh' --include='*.json' . || true)
+          if [ -n "$bad" ]; then
+            echo "Contact handle found in source:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "Source contact check OK"
+
+      - name: No license layer in source
+        run: |
+          bad=$(grep -RIn --exclude-dir=.git -E 'license_check|ensure_license|validate_license|OpenLicense' --include='*.sh' . || true)
+          if [ -n "$bad" ]; then
+            echo "License layer still present in source:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "License layer removed OK"

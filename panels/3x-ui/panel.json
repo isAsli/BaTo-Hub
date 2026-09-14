@@ -1,0 +1,13 @@
+{
+  "name": "3x-ui",
+  "display_name": "3X-UI (Sanaei)",
+  "version": "0.0.2",
+  "description": "Sanaei 3X-UI panel integration placeholder.",
+  "service_name": "3x-ui",
+  "default_port": "6090",
+  "default_path": "/opt/3x-ui",
+  "config_paths": ["/opt/3x-ui/config.json"],
+  "requirements": ["curl", "ca-certificates", "openssl"],
+  "ssl_method": "manual",
+  "template_method": "disabled"
+}

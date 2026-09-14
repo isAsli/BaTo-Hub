@@ -1,407 +1,194 @@
 # Security Audit
 
-Scope: BaToHub shell source tree at the initial release state.
+Scope: BaToHub panel-first shell source tree at version 0.0.2.
 
 Files audited:
 - install.sh
 - bin/batohub
 - bin/uninstall
 - core/main.sh
-- core/license.sh
+- core/module_loader.sh
+- core/panel_manager.sh
+- core/ssl_manager.sh
+- core/template_manager.sh
+- core/backup_manager.sh
 - core/update.sh
 - lib/common.sh
 - security/integrity.sh
-- modules/rebecca/rebecca_core.sh
-- modules/rebecca/ssl/module.sh
-- modules/rebecca/templates/module.sh
+- panels/rebecca/panel.json
+- panels/rebecca/module.sh
+- panels/rebecca/ssl/module.sh
+- panels/rebecca/templates/module.sh
+- panels/rebecca/templates/subscription/index.html
+- panels/rebecca/update/module.sh
+- panels/rebecca/menu/module.sh
+- panels/pasarguard/panel.json
+- panels/pasarguard/module.sh
+- panels/pasarguard/ssl/module.sh
+- panels/pasarguard/templates/module.sh
+- panels/3x-ui/panel.json
+- panels/3x-ui/module.sh
+- panels/3x-ui/ssl/module.sh
+- panels/3x-ui/templates/module.sh
 - config/batohub.conf
 - manifest.json
 
-This audit reports findings only. Fixes are written in the patch column. Each finding includes file, line context, severity, root cause, and a concrete patch.
+## 1. Removed OpenLicense layer
 
-## 1. install.sh
+### 1.1 License validation code no longer exists in the runtime flow
+- Files: core/license.sh, core/main.sh, config/batohub.conf, manifest.json
+- Severity: removed
+- Root cause: previous release contained a centralized license validation layer; the project is now fully free and open source and that layer is removed.
+- Status: removed from source, config, manifest, CI, and documentation.
 
-### 1.1 Missing strict mode and fragile dependency install
-- File: install.sh
-- Lines: 2, 8
-- Severity: Medium
-- Root cause: `set -u` only is used, apt output is fully silenced, and apt failures can be ignored by the redirected output while the script continues.
-- Patch:
-```diff
--#!/usr/bin/env bash
--set -u
-+#!/usr/bin/env bash
-+set -euo pipefail
-```
+### 1.2 No network call to a licensing server remains
+- Files: core/license.sh, core/main.sh
+- Severity: removed
+- Root cause: network calls were previously used for activation checks; they are now absent.
+- Status: grep confirms no remaining functional license path in shell sources.
 
-```diff
--apt-get update -qq
--apt-get install -y -qq curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils certbot >/dev/null
-+apt-get update -qq || { echo 'apt-get update failed.' >&2; exit 1; }
-+if ! apt-get install -y -qq curl ca-certificates openssl unzip rsync python3 whiptail dnsutils iproute2 procps coreutils certbot; then
-+  echo 'Required package installation failed.' >&2
-+  exit 1
-+fi
-```
+## 2. Configuration and state storage
 
-### 1.2 Unscoped glob chmod on bin/core/lib/security
-- File: install.sh
-- Lines: 14
-- Severity: Medium
-- Root cause: `chmod +x .../*` on each directory globbing path can succeed with zero matching files and can also match unexpected entries if the directory contents change between listing and chmod.
-- Patch:
-```diff
--chmod +x "$BASE/bin/"* "$BASE/core/"*.sh "$BASE/lib/"*.sh "$BASE/security/"*.sh "$BASE/modules/rebecca/ssl/"*.sh "$BASE/modules/rebecca/templates/"*.sh
-+find "$BASE/bin" "$BASE/core" "$BASE/lib" "$BASE/security" "$BASE/modules/rebecca/ssl" "$BASE/modules/rebecca/templates" -type f -name '*.sh' -exec chmod +x {} + || true
-```
+### 2.1 panel.conf and batohub.conf protection
+- Files: config/batohub.conf, core/panel_manager.sh
+- Severity: medium
+- Root cause: protected config files must never be world-readable and must not be overwritten by update.
+- Status: permissions are set to 600 with owner root:root and update restores protected paths from backup.
 
-### 1.3 Symlink logic and unquoted install source
-- File: install.sh
-- Lines: 11, 15
-- Severity: Low
-- Root cause: `cp` from `$SRC_DIR/."` is acceptable, but the global command name and paths are different across the repo, and the symlink target directory should be verified before creating the link.
-- Patch:
-```diff
--ln -sfn "$BASE/bin/batohub" /usr/local/bin/batohub
-+BATOHUB_CMD="${GLOBAL_CMD_NAME:-/usr/local/bin/BaToHub}"
-+if [ ! -d "/usr/local/bin" ]; then
-+  echo '/usr/local/bin does not exist.' >&2
-+  exit 1
-+fi
-+ln -sfn "$BASE/bin/batohub" "$BATOHUB_CMD"
-```
+### 2.2 State directory permissions
+- Files: lib/common.sh, core/backup_manager.sh
+- Severity: low
+- Root cause: /etc/batohub, /var/lib/batohub, /var/log/batohub must be mode 750 and owner root:root.
+- Status: installer and backup manager enforce those permissions.
 
-### 1.4 Idempotency and existing config handling
-- File: install.sh
-- Lines: 9, 11, 12
-- Severity: Medium
-- Root cause: Re-running the installer overwrites the config file without preserving prior site-specific values and does not verify prior installation state cleanly.
-- Patch:
-```diff
--cp "$SRC_DIR/config/batohub.conf" /etc/batohub/batohub.conf
-+if [ ! -f /etc/batohub/batohub.conf ]; then
-+  cp "$SRC_DIR/config/batohub.conf" /etc/batohub/batohub.conf
-+else
-+  echo 'Existing /etc/batohub/batohub.conf preserved.' >&2
-+fi
-```
+## 3. Panel isolation
 
-## 2. bin/batohub
+### 3.1 SSL paths are panel-specific
+- Files: panels/*/ssl/module.sh
+- Severity: medium
+- Root cause: SSL files must not be shared between panels in a way that affects other panels.
+- Status: Rebecca SSL uses a panel-specific cert directory and renewal hook; other panels are stubs.
 
-### 2.1 No guard against missing installation
-- File: bin/batohub
-- Line: 2
-- Severity: Low
-- Root cause: If the installation is missing or broken, the entrypoint fails inside the called script with a less useful error than a direct check here.
-- Patch:
-```diff
- #!/usr/bin/env bash
--exec /opt/batohub/core/main.sh "$@"
-+#!/usr/bin/env bash
-+set -euo pipefail
-+if [ ! -f /opt/batohub/core/main.sh ]; then
-+  echo 'BaToHub is not installed or the core file is missing.' >&2
-+  exit 1
-+fi
-+exec /opt/batohub/core/main.sh "$@"
-```
+### 3.2 Template paths are panel-specific
+- Files: panels/*/templates/module.sh
+- Severity: medium
+- Root cause: applying a template for one panel must not change another panel.
+- Status: each panel uses its own template module and does not touch other panel paths.
 
-## 3. bin/uninstall
+### 3.3 Pre-modification backup for template changes
+- Files: panels/rebecca/templates/module.sh
+- Severity: low
+- Root cause: template application should be reversible.
+- Status: existing template is backed up before modification.
 
-### 3.1 Local variable safety and confirm race
-- File: bin/uninstall
-- Lines: 9, 20, 24, 34
-- Severity: Medium
-- Root cause: Read-variables are unscoped and the confirmation input can be confused by trailing whitespace or empty input handling, and the Certbot hook path is hardcoded without quoting in a conditional.
-- Patch:
-```diff
--if ! read -r -p 'Type REMOVE to continue: ' _input; then
-+local _input
-+if ! read -r -p 'Type REMOVE to continue: ' _input; then
-```
+## 4. Backup, restore, and import
 
-```diff
--if [ "$_input" != "REMOVE" ]; then
-+if [ "${_input:-}" != "REMOVE" ]; then
-```
+### 4.1 Checksum verification
+- Files: core/backup_manager.sh
+- Severity: high
+- Root cause: restore must verify integrity before applying.
+- Status: restore and import verify checksum when available.
 
-```diff
--if [ -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh ]; then
-+if [ -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh ]; then
-```
+### 4.2 Transactional restore
+- Files: core/backup_manager.sh
+- Severity: high
+- Root cause: partial extraction must not overwrite live state.
+- Status: restore extracts to a temp directory before moving files into place.
 
-### 3.2 Unquoted globbing-like directory removal logic
-- File: bin/uninstall
-- Lines: 36, 40, 44, 48
-- Severity: Low
-- Root cause: `rm -rf "$BASE"` is acceptable, but future edits could add unquoted globs; the current script is mostly safe. Add explicit local and quoting discipline here to prevent later regression.
-- Patch:
-```diff
--if [ -d "$BASE" ]; then
-+local _base _conf _state _log _cmd
-+_base="${INSTALL_DIR:-/opt/BaToHub}"
-+_conf="${CONFIG_DIR:-/etc/BaToHub}"
-+_state="${STATE_DIR:-/var/lib/BaToHub}"
-+_log="${LOG_DIR:-/var/log/BaToHub}"
-+_cmd="/usr/local/bin/BaToHub"
-+
-+if [ -d "$_base" ]; then
-```
+### 4.3 Automatic safety backup before restore
+- Files: core/backup_manager.sh
+- Severity: high
+- Root cause: restore operations can overwrite current state.
+- Status: restore creates a safety backup before proceeding.
 
-## 4. lib/common.sh
+### 4.4 Rotation
+- Files: core/backup_manager.sh
+- Severity: low
+- Root cause: unlimited backups are not acceptable.
+- Status: rotation keeps the configured number of backups and removes old ones.
 
-### 4.1 Missing strict mode and unsafe log helper for arbitrary input
-- File: lib/common.sh
-- Lines: 2, 8, 15, 16
-- Severity: Medium
-- Root cause: `set -u` only, and `log` and `err` receive arbitrary caller strings that may include sensitive runtime values if callers misuse them. Logging is not sanitized centrally.
-- Patch:
-```diff
--#!/usr/bin/env bash
--set -u
-+#!/usr/bin/env bash
-+set -euo pipefail
-```
+## 5. Self-update
 
-```diff
--log(){ printf '[%s] %s\\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE" 2>/dev/null || true; }
-+log(){ printf '[%s] %s\\n' "$(date '+%F %T')" "$*" >> "$LOG_FILE" 2>/dev/null || true; }
-```
+### 5.1 Protected paths
+- Files: core/update.sh
+- Severity: high
+- Root cause: update must not overwrite panel.conf, batohub.conf, or user data.
+- Status: protected paths are listed and restored from the pre-update backup.
 
-```diff
--err(){ log "ERROR $*"; printf '\\033[31m✗ %s\\033[0m\\n' "$*"; }
-+err(){ log "ERROR $*"; printf '%s\\n' "ERROR: $*" >&2; }
-```
+### 5.2 Verification and rollback
+- Files: core/update.sh
+- Severity: high
+- Root cause: a failed update must not leave the system in a broken managed state.
+- Status: shell syntax is checked on updated files before promotion and rollback is attempted on failure.
 
-### 4.3 Color helpers overriding logs incorrectly
-- File: lib/common.sh
-- Lines: 9-13
-- Severity: Low
-- Root cause: Color functions output terminal escapes only, but downstream code mixes terminal colors with logging in ways that reduce readability and auditability.
-- Patch:
-- Keep color helpers, but do not use them inside `log`. Use plain text in logs.
+### 5.3 Diff visibility
+- Files: core/update.sh
+- Severity: low
+- Root cause: users should know what changed during update.
+- Status: added/removed/changed files are printed after successful update.
 
-## 5. core/license.sh
+## 6. Secure coding practices
 
-### 5.1 Fingerprint sent over HTTP channel without manifest signature verification concept
-- File: core/license.sh
-- Lines: 10, 18
-- Severity: High
-- Root cause: License validation uses curl against a configurable API, but the manifest/license trust model depends on network calls without an enforceable signing verification step in the code.
-- Patch:
-```diff
--validate_license(){\n local key=\"$1\" fp payload out tmp\n fp=$(fingerprint)\n payload=...\n tmp=$(mktemp)\n local code; code=$(curl -sS -o \"$tmp\" -w '%{http_code}' --connect-timeout 8 --max-time 20 -H 'Content-Type: application/json' -d \"$payload\" \"$LICENSE_API\" 2>>\"$LOG_FILE\" || true);\n ...
-+validate_license(){\n local key=\"$1\" fp payload out tmp\n fp=$(fingerprint)\n payload=...\n tmp=$(mktemp)\n local code\n code=$(curl -sS -o \"$tmp\" -w '%{http_code}' --connect-timeout 8 --max-time 20 --cacert /etc/ssl/certs/ca-certificates.crt -H 'Content-Type: application/json' -d \"$payload\" \"$LICENSE_API\" 2>>\"$LOG_FILE\" || true)\n ...
-```
+### 6.1 Strict mode and quoting
+- Files: all .sh files
+- Severity: medium
+- Root cause: unattended errors and unquoted expansions cause injection and mishandling.
+- Status: set -euo pipefail is used and variables are quoted.
 
-### 5.2 License file permissions and key storage
-- File: core/license.sh
-- Lines: 22, 23
-- Severity: Medium
-- Root cause: License receipt is written with `install -m 600`, which is good, but the logic depends on a temp file being moved correctly; the key file is stored separately and must be checked for existence before reading it later.
-- Patch: keep `install -m 600` and add check before reading key.
+### 6.2 Temporary files
+- Files: lib/common.sh, core/update.sh, core/backup_manager.sh
+- Severity: medium
+- Root cause: predictable temp files can lead to races and conflicts.
+- Status: mktemp is used for temporary files and directories.
 
-## 6. core/update.sh
+### 6.3 Shared state locking
+- Files: lib/common.sh, panels/rebecca/ssl/module.sh, panels/rebecca/templates/module.sh
+- Severity: medium
+- Root cause: concurrent writes to .env or similar files can corrupt state.
+- Status: flock is used around shared file writes where practical.
 
-### 6.1 Unsigned manifest with fallback trust
-- File: core/update.sh
-- Lines: 8, 10, 14
-- Severity: Critical
-- Root cause: The update system trusts a remote manifest without signature verification and compares the package SHA-256 only if the manifest provides it; if the manifest is tampered, the update can be redirected to a malicious package.
-- Patch:
-```diff
--if curl -fsS --max-time 15 "$UPDATE_MANIFEST" -o "$tmp" 2>>"$LOG_FILE"; then\n latest=$(json_get "$tmp" version); url=$(json_get "$tmp" package); sha=$(json_get "$tmp" sha256)\n ...
-+if curl -fsS --max-time 15 --cacert /etc/ssl/certs/ca-certificates.crt "$UPDATE_MANIFEST" -o "$tmp" 2>>"$LOG_FILE"; then\n if ! gpg --verify "$MANIFEST_SIGNATURE" "$tmp" 2>>"$LOG_FILE"; then\n   err 'Manifest signature verification failed.'\n   rm -f "$tmp"\n   return 1\n fi\n latest=$(json_get "$tmp" version); url=$(json_get "$tmp" package); sha=$(json_get "$tmp" sha256)\n ...
-```
+## 7. Contact and license hygiene
 
-### 6.2 Missing mandatory SHA-256 enforcement
-- File: core/update.sh
-- Lines: 13, 14
-- Severity: High
-- Root cause: If the manifest provides no SHA-256, the script proceeds with the download and can install an unverified package.
-- Patch:
-```diff
--if [ -n "$sha" ] && [ "$(sha256sum "$z"|awk '{print $1}')" != "$sha" ]; then err 'Update checksum mismatch.'; rm -f "$z"; rm -f "$tmp"; pause; return; fi
-+if [ -z "$sha" ]; then\n   err 'Update manifest is missing the package SHA-256.'\n   rm -f "$z" "$tmp"\n   return 1\n fi\n if [ "$(sha256sum "$z" | awk '{print $1}')" != "$sha" ]; then\n   err 'Update checksum mismatch.'\n   rm -f "$z" "$tmp"\n   return 1\n fi
-```
+### 7.1 No contact handle in source code
+- Files: all .sh files, .json files
+- Severity: high
+- Root cause: the project rule requires no Telegram handle or username in source code.
+- Status: no contact handle appears in shell or manifest files; contact appears only in documentation.
 
-### 6.3 Temp file suffix and known path
-- File: core/update.sh
-- Lines: 13, 23, 32
-- Severity: Medium
-- Root cause: Update package and helper script paths use fixed names under /tmp, which can be predicted by other processes or races.
-- Patch:
-```diff
--z=/tmp/batohub-update.zip\n ...
-+local z; z=$(mktemp /tmp/batohub-update.XXXXXX.zip)
-```
+### 7.2 License file
+- Files: LICENSE
+- Severity: medium
+- Root cause: the project must ship GPL-3.0 with the unmodified license text.
+- Status: LICENSE contains the full GPL-3.0 text.
 
-```diff
--github_json=$(mktemp)\n ...
-+local github_json; github_json=$(mktemp /tmp/batohub-github.XXXXXX.json)
-```
+## 8. Documentation integrity
 
-```diff
--ru='...'; rf=/tmp/rebecca-update.sh\n ...
-+local ru rf\n ru='...'\n rf=$(mktemp /tmp/rebecca-update.XXXXXX.sh)\n ...
-```
+### 8.1 Bilingual documentation
+- Files: README.md, README.fa.md, SECURITY.md, SECURITY.fa.md, CONTRIBUTING.md, CONTRIBUTING.fa.md, SUPPORT.md, SUPPORT.fa.md, CODE_OF_CONDUCT.md, CODE_OF_CONDUCT.fa.md, CHANGELOG.md
+- Severity: medium
+- Root cause: documentation must be consistent across languages and must not contain AI-related wording, emojis, or marketing language.
+- Status: documents were rewritten for v0.0.2 with the required sections and contact handle @DatPHP.
 
-### 6.4 curl pipe to bash equivalent for Rebecca updater
-- File: core/update.sh
-- Lines: 32, 33
-- Severity: High
-- Root cause: The remote Rebecca updater is downloaded to a temp file and executed with bash. This is effectively `curl ... | bash` behavior with an extra write step and has the same trust profile: remote code execution if the upstream script is compromised.
-- Patch:
-```diff
--if curl -fsSL --max-time 20 "$ru" -o "$rf" 2>>"$LOG_FILE"; then bash "$rf" update 2>&1 | tee -a "$LOG_FILE" && ok 'Rebecca update completed' || { err 'Rebecca update failed'; show_error; }; rm -f "$rf"; else err 'Rebecca updater unavailable'; fi
-+if curl -fsSL --max-time 20 --cacert /etc/ssl/certs/ca-certificates.crt "$ru" -o "$rf" 2>>"$LOG_FILE"; then\n   if ! gpg --verify "$REBECCA_UPDATER_SIGNATURE" "$rf" 2>>"$LOG_FILE"; then\n     err 'Rebecca updater signature verification failed.'\n     rm -f "$rf"\n     return 1\n   fi\n   bash "$rf" update 2>&1 | tee -a "$LOG_FILE" && ok 'Rebecca update completed' || { err 'Rebecca update failed'; show_error; }\n   rm -f "$rf"\nelse\n   err 'Rebecca updater unavailable'\nfi
-```
+## 9. Testing summary
 
-## 7. core/main.sh
+The following checks were performed before release:
+- shellcheck on all shell files
+- bash -n on all shell files
+- shfmt formatting check
+- grep for license-related functional references in source
+- grep for contact handles in source
+- panel.json validity check for every panel
+- panel interface function check for every panel
+- protected config isolation check
+- backup, restore, and import logic review
+- self-update protected path and rollback review
 
-### 7.1 Mixed UI model and missing confirmation wrappers
-- File: core/main.sh
-- Lines: multiple
-- Severity: Medium
-- Root cause: The menu uses both `read -r -p` prompts and a future whiptail model; destructive actions rely on string matches and some paths lack explicit confirmation wrappers.
-- Patch: wrap destructive actions in a shared confirmation helper and log the action outcome.
+All checks passed for the committed tree.
 
-### 7.2 License enforcement at startup
-- File: core/main.sh
-- Lines: 6, 50
-- Severity: Medium
-- Root cause: `ensure_license` is called once in `main_menu`, but some submenus could still be reachable indirectly in future code paths if module loading changes; the current load order is acceptable but should be explicit.
-- Patch: keep startup license check and document load order.
+## 10. Limitations
 
-## 8. security/integrity.sh
-
-### 8.1 Find -o precedence bug
-- File: security/integrity.sh
-- Lines: 8
-- Severity: High
-- Root cause: `find ... -type f -perm /111 -o -type f -name '*.sh'` does not group the two predicates correctly. `-o` has lower precedence than implied, so the second clause applies to all found files, not only to the files matched under the intended union.
-- Patch:
-```diff
--find "$ROOT/core" "$ROOT/lib" "$ROOT/modules" "$ROOT/bin" -type f -perm /111 -o -type f -name '*.sh' 2>/dev/null | sort | while read -r f; do sha256sum "$f"; done > "$MANIFEST"
-+find "$ROOT/core" "$ROOT/lib" "$ROOT/modules" "$ROOT/bin" -type f \( -perm /111 -o -name '*.sh' \) 2>/dev/null | sort | while read -r f; do sha256sum "$f"; done > "$MANIFEST"
-```
-
-### 8.2 Missing manifest is not an error on verify
-- File: security/integrity.sh
-- Lines: 5
-- Severity: High
-- Root cause: `verify_integrity` returns success when the manifest is missing, so a destroyed manifest is silently treated as passing.
-- Patch:
-```diff
--verify_integrity(){ [ -f "$MANIFEST" ] || return 0; sha256sum -c "$MANIFEST" --quiet 2>/dev/null; }
-+verify_integrity(){\n  if [ ! -f "$MANIFEST" ]; then\n    echo 'Integrity manifest is missing.' >&2\n    return 1\n  fi\n  sha256sum -c "$MANIFEST" --quiet 2>/dev/null\n}
-```
-
-### 8.3 Non-atomic manifest write
-- File: security/integrity.sh
-- Lines: 6, 8
-- Severity: Medium
-- Root cause: Manifest is overwritten directly, which can race with readers and leave a truncated manifest if the process is interrupted.
-- Patch:
-```diff
--write_integrity(){\n : > "$MANIFEST"\n find ... | while read -r f; do sha256sum "$f"; done > "$MANIFEST"\n ...
-+write_integrity(){\n  local tmp\n  tmp=$(mktemp /etc/batohub/integrity.XXXXXX.sha256)\n  : > "$tmp"\n  find "$ROOT/core" "$ROOT/lib" "$ROOT/modules" "$ROOT/bin" -type f \( -perm /111 -o -name '*.sh' \) 2>/dev/null | sort | while read -r f; do sha256sum "$f"; done > "$tmp"\n  chmod 600 "$tmp"\n  chown root:root "$tmp"\n  mv -f "$tmp" "$MANIFEST"\n}
-```
-
-### 8.4 No lock around write_integrity
-- File: security/integrity.sh
-- Lines: 6
-- Severity: Low
-- Root cause: Concurrent installs or repair actions could interleave manifest writes.
-- Patch: add flock on a manifest.lock file when writing or verifying.
-
-## 9. modules/rebecca/rebecca_core.sh
-
-### 9.1 Unquoted grep/sed extractions
-- File: modules/rebecca/rebecca_core.sh
-- Lines: 30, 31
-- Severity: Medium
-- Root cause: `tr -d '"\'` is fragile and the value may still contain whitespace or control characters; better to sanitize after extraction.
-- Patch: trim with `xargs` or parameter expansion after extraction and reject empty results.
-
-## 10. modules/rebecca/ssl/module.sh
-
-### 10.1 Domain validation is permissive
-- File: modules/rebecca/ssl/module.sh
-- Lines: 12
-- Severity: Medium
-- Root cause: The regex allows strings like `.-.` or leading/trailing dots in some cases; better validation should reject empty labels and invalid characters.
-- Patch:
-```diff
--if [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]]; then\n   ...\nfi
-+local _clean\n_clean=$(printf '%s' "$domain" | sed 's/[[:space:]]//g')\nif [ -z "$_clean" ] || [[ "$_clean" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$ ]]; then\n   domain="$_clean"\nelse\n   err 'Invalid domain.'\n   return 1\nfi
-```
-
-### 10.2 Certificate directory permissions order
-- File: modules/rebecca/ssl/module.sh
-- Lines: 19, 36
-- Severity: Low
-- Root cause: Cert directory is created, then chown runs on parent, then files are copied; this is acceptable but should set directory permissions before writing sensitive files.
-- Patch: set `certdir` permissions to 750 before any file write.
-
-### 10.3 Certbot output logged with private key handling
-- File: modules/rebecca/ssl/module.sh
-- Lines: 33, 34, 35
-- Severity: Medium
-- Root cause: Certbot output is appended to the log; this is acceptable, but any future change that logs environment or key paths in a raw way should be blocked by policy.
-- Patch: keep log line but ensure no private key material is echoed.
-
-## 11. modules/rebecca/templates/module.sh
-
-### 11.1 .env write path is not atomic
-- File: modules/rebecca/templates/module.sh
-- Lines: 8, 9
-- Severity: Medium
-- Root cause: sed in-place followed by append can interleave if multiple processes edit the same env file; use lock or atomic rewrite for sensitive env updates.
-- Patch: use flock on a lock file in `$REBECCA_DIR/.env.lock` around env edits.
-
-## 12. config/batohub.conf
-
-### 12.1 Config permissions depend on installer behavior
-- File: config/batohub.conf
-- Lines: 1-14
-- Severity: Medium
-- Root cause: The config file content is not secret-heavy, but installer permissions and runtime sourcing must ensure it is not world-readable.
-- Patch: enforce `chmod 600` in installer and require `600` at repair time.
-
-## 13. manifest.json
-
-### 13.1 Placeholder hash and missing signature fields
-- File: manifest.json
-- Lines: 4, 5
-- Severity: High
-- Root cause: `sha256` is a placeholder, and the manifest has no signature reference, so consumers cannot verify authenticity without a separate signing step.
-- Patch:
-- Remove placeholder and write the real computed hash during packaging.
-- Add `signature` and `signing_key_fingerprint` fields after signing.
-
-## Summary
-
-Critical:
-- Unsigned update manifest with SHA-256 optional enforcement, allowing MITM or downgrade to a malicious package
-
-High:
-- Manifest treated as valid even when missing in integrity verification
-- find -o precedence bug reducing integrity coverage
-- Remote updater execution with curl-to-bash trust model
-- License validation over HTTP channel without explicit CA certificate usage and without manifest signing integration
-
-Medium:
-- Installer silent apt failures and weak strict mode
-- Non-atomic integrity and env writes
-- Unscoped chmod/glob patterns
-- Unquoted input handling in several prompts
-- Domain validation gap
-- Temp file predictability in update flow
-
-Low:
-- Entrypoint missing installation-guard check
-- Color and logging mixing concerns
-- Unnecessary cosmetic UI elements
-
-These findings are remediated in the next patch phase.
+- Rebecca SSL depends on Certbot and port 80 availability.
+- PasarGuard and 3X-UI are stubs in this release and do not implement SSL or templates.
+- Self-update depends on git availability for full fidelity; without git it applies a safer fallback with reduced diff reporting.
+- No connection to any licensing server exists in this release.
+- Root access can still modify local files; integrity checks detect tampering but do not make the system physically immutable.

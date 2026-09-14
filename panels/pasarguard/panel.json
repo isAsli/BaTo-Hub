@@ -1,0 +1,13 @@
+{
+  "name": "pasarguard",
+  "display_name": "PasarGuard",
+  "version": "0.0.2",
+  "description": "PasarGuard panel integration placeholder.",
+  "service_name": "pasarguard",
+  "default_port": "10086",
+  "default_path": "/opt/pasarguard",
+  "config_paths": ["/opt/pasarguard/.env"],
+  "requirements": ["curl", "ca-certificates", "openssl"],
+  "ssl_method": "manual",
+  "template_method": "disabled"
+}
