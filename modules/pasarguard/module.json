@@ -1,9 +1,0 @@
-{
-  "name": "pasarguard",
-  "version": "0.0.0",
-  "description": "Not implemented in this release.",
-  "status": "disabled",
-  "path": "modules/pasarguard",
-  "entry": "",
-  "dependencies": []
-}
