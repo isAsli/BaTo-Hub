@@ -1,13 +1,31 @@
 {
   "name": "rebecca",
   "display_name": "Rebecca",
-  "version": "0.0.2",
-  "description": "Rebecca panel integration for SSL, subscription templates, status, and update.",
+  "version": "0.0.3",
+  "description": "Rebecca panel integration. Rebecca is distributed as a Go binary under /opt/rebecca, or as a Docker Compose stack in the same directory.",
   "service_name": "rebecca",
-  "default_port": "8080",
+  "default_port": 8000,
   "default_path": "/opt/rebecca",
-  "config_paths": ["/opt/rebecca/.env"],
-  "requirements": ["curl", "ca-certificates", "openssl", "certbot"],
-  "ssl_method": "certbot",
-  "template_method": "copy"
+  "config_paths": [
+    "/opt/rebecca/.env",
+    "/opt/rebecca/.channel",
+    "/opt/rebecca/docker-compose.yml"
+  ],
+  "data_paths": [
+    "/var/lib/rebecca",
+    "/var/lib/rebecca/certs"
+  ],
+  "database_type": "sqlite|mysql|mariadb",
+  "cli_name": "/opt/rebecca/bin/rebecca-cli",
+  "requirements": [
+    "curl",
+    "ca-certificates",
+    "openssl",
+    "acme.sh"
+  ],
+  "ssl_method": "acme.sh issuance into BaToHub state storage; existing panel certificate options are updated, otherwise the operator is told which paths to configure",
+  "template_method": "CUSTOM_TEMPLATES_DIRECTORY with SUBSCRIPTION_PAGE_TEMPLATE",
+  "supports_bare_ip_ssl": false,
+  "supports_reseller": false,
+  "update_method": "official Rebecca installer script"
 }

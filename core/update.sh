@@ -1,251 +1,240 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-. /opt/batohub/lib/common.sh
+# Self-update.
+#
+# The remote tree is always fetched over HTTPS with certificate validation, the
+# local state is backed up first, protected paths are never touched, and the new
+# tree is verified before it replaces the running installation. A failed
+# verification restores the previous tree.
 
-protected_paths_list() {
-  local list
-  list="${CONFIG_DIR}/panel.conf"
-  list="${list}
-${CONFIG_DIR}/batohub.conf"
-  list="${list}
-${STATE_DIR}"
-  list="${list}
-${LOG_DIR}"
-  printf '%s' "$list"
+# Paths that an update must never overwrite. They are BaToHub state, operator
+# configuration, log data, or explicitly declared as user managed.
+update_protected_paths() {
+  local path
+  printf '%s\n' "$CONFIG_FILE"
+  printf '%s\n' "$PANEL_CONF"
+  printf '%s\n' "$STATE_DIR"
+  printf '%s\n' "$LOG_DIR"
+  if [[ -n "${USER_MANAGED_PATHS:-}" ]]; then
+    for path in ${USER_MANAGED_PATHS}; do
+      [[ -n "$path" ]] && printf '%s\n' "$path"
+    done
+  fi
 }
 
-protected_paths_include() {
-  local path="$1"
-  local list
-  list=$(protected_paths_list)
-  if printf '%s\n' "$list" | grep -qxF "$path"; then
-    return 0
+update_path_is_protected() {
+  local path="$1" protected
+  while IFS= read -r protected; do
+    [[ -n "$protected" ]] || continue
+    if [[ "$path" == "$protected" || "$path" == "$protected"/* ]]; then
+      return 0
+    fi
+  done < <(update_protected_paths)
+  return 1
+}
+
+update_version_is_older() {
+  local candidate="$1" current="$2"
+  [[ "$candidate" == "$current" ]] && return 1
+  local lowest
+  lowest="$(printf '%s\n%s\n' "$candidate" "$current" | sort -V | head -n 1)"
+  [[ "$lowest" == "$candidate" ]]
+}
+
+update_fetch_remote() {
+  local dest="$1" url tarball
+  [[ -d "$dest" ]] || install -d "$dest"
+  if need_cmd git; then
+    if git clone --quiet --depth 1 --branch "$GITHUB_BRANCH" \
+      "https://github.com/${GITHUB_REPO}.git" "$dest" >>"$LOG_FILE" 2>&1; then
+      log "Update source fetched with git from ${GITHUB_REPO}"
+      return 0
+    fi
+    warn "git could not fetch the repository; falling back to the HTTPS archive."
   fi
-  if printf '%s\n' "$list" | grep -qF "$(dirname "$path")/"; then
+  need_cmd curl || {
+    err "Neither git nor curl is available; the update source cannot be fetched."
+    return 1
+  }
+  url="https://github.com/${GITHUB_REPO}/archive/refs/heads/${GITHUB_BRANCH}.tar.gz"
+  tarball="$(mktemp_file update)"
+  # shellcheck disable=SC2064
+  trap "rm -f -- '$tarball'" RETURN
+  if ! curl --fail --location --show-error --silent --retry 3 --proto '=https' \
+    --tlsv1.2 --output "$tarball" "$url"; then
+    err "Download failed: $url"
+    return 1
+  fi
+  if ! tar -xzf "$tarball" -C "$dest" --strip-components=1 >>"$LOG_FILE" 2>&1; then
+    err "The downloaded archive could not be extracted."
+    return 1
+  fi
+  log "Update source fetched from ${url}"
+  return 0
+}
+
+update_remote_version() {
+  local tree="$1"
+  if [[ -r "${tree}/VERSION" ]]; then
+    head -n 1 "${tree}/VERSION" | tr -d '[:space:]'
     return 0
   fi
   return 1
 }
 
-update_all() {
-  local remote_version tmp remote_root diff_added diff_removed diff_changed backup_dir rollback_ok new_files removed_files changed_files
-  header
-
-  info "Checking remote update from GitHub branch ${GITHUB_BRANCH:-main}..."
-
-  remote_version=$(mktemp_file "remote_version")
-  tmp=$(mktemp_file "remote_manifest")
-
-  local repo_url="https://github.com/${GITHUB_REPO:-isAsli/BaTo-Hub}.git"
-  local remote_ref="${GITHUB_BRANCH:-main}"
-
-  (
-    if command -v git >/dev/null 2>&1; then
-      git ls-remote --heads "$repo_url" "$remote_ref" 2>>"$LOG_FILE" || true
+update_verify_tree() {
+  local tree="$1" file failed=0
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    if ! bash -n "$file" 2>>"$LOG_FILE"; then
+      err "Syntax error in updated file: ${file#"$tree"/}"
+      failed=1
     fi
-  ) > "$remote_version" 2>/dev/null || true
+  done < <(find "$tree" -type f -name '*.sh' -not -path '*/.git/*' | sort)
+  if [[ "$failed" -ne 0 ]]; then
+    return 1
+  fi
+  if [[ ! -r "${tree}/panels/rebecca/panel.json" || ! -d "${tree}/panels" ]]; then
+    err "The updated tree does not look like a BaToHub release."
+    return 1
+  fi
+  return 0
+}
 
-  if [ ! -s "$remote_version" ]; then
-    err "Unable to reach remote repository or branch."
-    rm -f "$remote_version" "$tmp"
-    pause
-    return
+update_sync_tree() {
+  local tree="$1" args=()
+  if need_cmd rsync; then
+    args=(--archive --delete --exclude '.git/' --exclude '.github/' --exclude 'node_modules/')
+    if ! rsync "${args[@]}" --exclude '/config/panel.conf' --exclude '/config/batohub.conf' \
+      "${tree}/" "${INSTALL_DIR}/" >>"$LOG_FILE" 2>&1; then
+      err "File synchronisation failed. Full output: ${LOG_FILE}"
+      return 1
+    fi
+    return 0
+  fi
+  warn "rsync is not installed; using the archive replacement fallback."
+  local dir
+  for dir in bin core lib panels tools security scripts; do
+    rm -rf -- "${INSTALL_DIR:?}/${dir}"
+  done
+  if ! cp -a "${tree}/." "${INSTALL_DIR}/"; then
+    err "Copying the updated tree failed."
+    return 1
+  fi
+  rm -rf -- "${INSTALL_DIR}/.git"
+  return 0
+}
+
+update_restore_snapshot() {
+  local snapshot="$1"
+  if [[ ! -d "$snapshot" ]]; then
+    err "Update snapshot is missing; automatic rollback is not possible."
+    return 1
+  fi
+  if ! cp -a "${snapshot}/." "${INSTALL_DIR}/"; then
+    err "Rollback failed. Restore the installation from ${snapshot} manually."
+    return 1
+  fi
+  ok "Rolled back to the previous BaToHub tree."
+  log "Update rolled back from ${snapshot}"
+  return 0
+}
+
+update_run() {
+  local force="${1:-0}" tree snapshot remote_version current_version panel
+  need_root || return 1
+
+  panel="$(panel_config_name)"
+  current_version="$APP_VERSION"
+  tree="$(mktemp_dir update)" || return 1
+  snapshot="$(mktemp_dir snapshot)" || return 1
+
+  printf 'Current version: %s\n' "$current_version"
+  printf 'Source: https://github.com/%s (%s)\n' "$GITHUB_REPO" "$GITHUB_BRANCH"
+
+  if ! update_fetch_remote "$tree"; then
+    rm -rf -- "$tree" "$snapshot"
+    return 1
   fi
 
-  local remote_head
-  remote_head=$(awk '{print $1}' "$remote_version" | head -n 1)
-
-  if [ -z "$remote_head" ]; then
-    err "Remote branch reference not found: $remote_ref"
-    rm -f "$remote_version" "$tmp"
-    pause
-    return
-  fi
-
-  # Fetch remote tree into a temporary location.
-  remote_root=$(mktemp_dir "remote_root")
-  (
-    cd "$remote_root"
-    if command -v git >/dev/null 2>&1; then
-      git init --quiet
-      git remote add origin "$repo_url"
-      git fetch --depth=1 origin "$remote_ref" 2>>"$LOG_FILE" || true
-      git checkout -b update_candidate FETCH_HEAD 2>>"$LOG_FILE" || true
-    else
-      err "git is required for update."
-      rm -rf "$remote_root"
-      exit 1
-    fi
-  ) || {
-    err "Failed to prepare remote tree."
-    rm -rf "$remote_root"
-    rm -f "$remote_version" "$tmp"
-    pause
-    return
+  remote_version="$(update_remote_version "$tree")" || {
+    rm -rf -- "$tree" "$snapshot"
+    err "The remote tree does not contain a VERSION file."
+    return 1
   }
+  printf 'Available version: %s\n' "$remote_version"
 
-  local local_version remote_version_value
-  local_version="$APP_VERSION"
-  remote_version_value=$(cat "${remote_root}/VERSION" 2>/dev/null | sed -n '1p' | tr -d '[:space:]' || true)
-
-  if [ -z "$remote_version_value" ]; then
-    err "Remote VERSION file not found."
-    rm -rf "$remote_root"
-    rm -f "$remote_version" "$tmp"
-    pause
-    return
+  if [[ "$remote_version" == "$current_version" && "$force" != "1" ]]; then
+    ok "BaToHub is already at ${current_version}."
+    rm -rf -- "$tree" "$snapshot"
+    return 0
   fi
-
-  if [ "$local_version" = "$remote_version_value" ]; then
-    ok "BaToHub is up to date: $local_version"
-    rm -rf "$remote_root"
-    rm -f "$remote_version" "$tmp"
-    pause
-    return
+  if update_version_is_older "$remote_version" "$current_version" && [[ "$force" != "1" ]]; then
+    err "The remote version ${remote_version} is older than the installed ${current_version}."
+    err "Downgrades are refused. Pass --force only if you intentionally want to downgrade."
+    rm -rf -- "$tree" "$snapshot"
+    return 1
   fi
-
-  info "Local version: $local_version"
-  info "Remote version: $remote_version_value"
-
-  if ! confirm "Update to $remote_version_value? This will replace managed files."; then
-    rm -rf "$remote_root"
-    rm -f "$remote_version" "$tmp"
-    return
-  fi
-
-  # Full backup before update.
-  backup_dir=$(mktemp_dir "update_backup")
-  cp -a "${INSTALL_DIR:-/opt/batohub}" "$backup_dir/install"
-  cp -a "${CONFIG_DIR:-/etc/batohub}" "$backup_dir/config" 2>/dev/null || true
-  cp -a "${STATE_DIR:-/var/lib/batohub}" "$backup_dir/state" 2>/dev/null || true
-  cp -a "${LOG_DIR:-/var/log/batohub}" "$backup_dir/logs" 2>/dev/null || true
-
-  # Determine changed files.
-  diff_added=$(mktemp_file "added")
-  diff_removed=$(mktemp_file "removed")
-  diff_changed=$(mktemp_file "changed")
-
-  (
-    cd "${INSTALL_DIR:-/opt/batohub}"
-    git status --porcelain -uall 2>/dev/null | awk '{print $2}' || true
-  ) > /dev/null 2>&1 || true
-
-  # Compare local tracked files against remote tree.
-  if command -v git >/dev/null 2>&1; then
-    cd "$remote_root"
-    git ls-tree -r --name-only HEAD 2>/dev/null | sort > "$tmp"
-    cd "${INSTALL_DIR:-/opt/batohub}"
-    find . -type f -not -path './.*' | sed 's|^\./||' | sort > "${tmp}.local"
-
-    comm -23 "${tmp}.local" "$tmp" > "$diff_removed" || true
-    comm -13 "${tmp}.local" "$tmp" > "$diff_added" || true
-    comm -12 "${tmp}.local" "$tmp" | while read -r f; do
-      if ! cmp -s "$f" "$remote_root/$f" 2>/dev/null; then
-        printf '%s\n' "$f" >> "$diff_changed"
-      fi
-    done
-  else
-    info "git diff unavailable; applying full managed replacement."
-    diff_added=$(mktemp_file "added_fallback")
-    diff_changed=$(mktemp_file "changed_fallback")
-  fi
-
-  # Apply update safely.
-  local install_dir="${INSTALL_DIR:-/opt/batohub}"
-  local backup_install="${backup_dir}/install"
-  local backup_config="${backup_dir}/config"
-  local backup_state="${backup_dir}/state"
-  local backup_logs="${backup_dir}/logs"
-
-  # Replace managed tree.
-  rm -rf "$install_dir.new"
-  cp -a "$remote_root" "$install_dir.new"
-
-  # Restore protected paths from the old installation where they existed.
-  if [ -d "$backup_config" ] && [ -f "$backup_config/panel.conf" ]; then
-    install -d "$install_dir.new/etc/batohub" 2>/dev/null || true
-    cp -a "$backup_config/panel.conf" "$install_dir.new/etc/batohub/panel.conf" 2>/dev/null || true
-    cp -a "$backup_config/batohub.conf" "$install_dir.new/etc/batohub/batohub.conf" 2>/dev/null || true
-  fi
-
-  if [ -d "$backup_state" ]; then
-    cp -a "$backup_state" "$install_dir.new/var/lib/batohub" 2>/dev/null || true
-  fi
-
-  if [ -d "$backup_logs" ]; then
-    cp -a "$backup_logs" "$install_dir.new/var/log/batohub" 2>/dev/null || true
-  fi
-
-  local new_install_dir="$install_dir.new"
-
-  # Verify shell sources in the new tree.
-  local shell_error=0
-  while IFS= read -r f; do
-    if [ -f "$new_install_dir/$f" ]; then
-      if ! bash -n "$new_install_dir/$f" 2>>"$LOG_FILE"; then
-        err "Syntax error in updated file: $f"
-        shell_error=1
-      fi
+  if [[ "$INTERACTIVE" == 1 && "$force" != "1" ]]; then
+    if ! ui_confirm "Update BaToHub from ${current_version} to ${remote_version}?"; then
+      info "Update cancelled."
+      rm -rf -- "$tree" "$snapshot"
+      return 0
     fi
-  done < <(find "$new_install_dir" -type f -name '*.sh' | sed "s|^$new_install_dir/||")
-
-  if [ "$shell_error" -ne 0 ]; then
-    err "Update verification failed. Rolling back."
-    rollback_ok=0
-    if [ -d "$backup_install" ]; then
-      rm -rf "$install_dir"
-      mv "$backup_install" "$install_dir"
-      rollback_ok=1
-    fi
-    if [ "$rollback_ok" -eq 0 ]; then
-      err "Rollback also failed. Manual recovery required."
-    else
-      ok "Rollback completed from backup."
-    fi
-    rm -rf "$remote_root" "$backup_dir" "$remote_version" "$tmp" "$diff_added" "$diff_removed" "$diff_changed"
-    pause
-    return
   fi
 
-  # Move updated tree into place.
-  rm -rf "$install_dir"
-  mv "$new_install_dir" "$install_dir"
+  printf 'Creating a backup of the current state...\n'
+  local archive
+  archive="$(backup_create "$panel")" || {
+    err "A backup could not be created; the update is aborted."
+    rm -rf -- "$tree" "$snapshot"
+    return 1
+  }
+  printf 'Backup: %s\n' "$archive"
 
-  # Restore protected config/state/log from backup if they were present.
-  if [ -d "$backup_config" ]; then
-    cp -a "$backup_config"/* "$install_dir/etc/batohub/" 2>/dev/null || true
-  fi
-  if [ -d "$backup_state" ]; then
-    cp -a "$backup_state/." "$install_dir/var/lib/batohub/" 2>/dev/null || true
-  fi
-  if [ -d "$backup_logs" ]; then
-    cp -a "$backup_logs/." "$install_dir/var/log/batohub/" 2>/dev/null || true
-  fi
-
-  chmod 750 "$install_dir/etc/batohub" 2>/dev/null || true
-  chmod 750 "$install_dir/var/lib/batohub" 2>/dev/null || true
-  chmod 750 "$install_dir/var/log/batohub" 2>/dev/null || true
-  chmod 600 "$install_dir/etc/batohub/panel.conf" 2>/dev/null || true
-  chmod 600 "$install_dir/etc/batohub/batohub.conf" 2>/dev/null || true
-  chown -R root:root "$install_dir" 2>/dev/null || true
-
-  # Print diff summary.
-  info "Update summary:"
-  if [ -s "$diff_added" ]; then
-    info "Added files:"
-    cat "$diff_added" | sed 's|^|  + |'
-  fi
-  if [ -s "$diff_removed" ]; then
-    info "Removed files:"
-    cat "$diff_removed" | sed 's|^|  - |'
-  fi
-  if [ -s "$diff_changed" ]; then
-    info "Changed files:"
-    cat "$diff_changed" | sed 's|^|  ~ |'
+  if ! cp -a "${INSTALL_DIR}/." "$snapshot/"; then
+    err "The installation snapshot could not be created; the update is aborted."
+    rm -rf -- "$tree" "$snapshot"
+    return 1
   fi
 
-  ok "BaToHub updated to $remote_version_value"
-  rm -rf "$remote_root" "$backup_dir" "$remote_version" "$tmp" "$diff_added" "$diff_removed" "$diff_changed"
-  pause
+  if ! update_verify_tree "$tree"; then
+    err "The downloaded tree failed verification; nothing was changed."
+    rm -rf -- "$tree" "$snapshot"
+    return 1
+  fi
+
+  printf 'Applying updated files...\n'
+  if ! update_sync_tree "$tree"; then
+    update_restore_snapshot "$snapshot" || true
+    rm -rf -- "$tree" "$snapshot"
+    return 1
+  fi
+
+  printf 'Verifying the updated installation...\n'
+  local verified=0
+  if (cd "$INSTALL_DIR" && loader_validate_all) >>"$LOG_FILE" 2>&1; then
+    verified=1
+  fi
+  if [[ "$verified" -eq 1 ]] && integrity_write && integrity_check; then
+    ok "BaToHub updated to ${remote_version}."
+    log "Update completed: ${current_version} -> ${remote_version}"
+    rm -rf -- "$tree" "$snapshot"
+    return 0
+  fi
+
+  err "Post-update verification failed. Rolling back."
+  update_restore_snapshot "$snapshot" || true
+  rm -rf -- "$tree" "$snapshot"
+  return 1
+}
+
+update_all() {
+  local force="${1:-0}" status=0
+  update_run "$force" || status=$?
+  if [[ "$status" -ne 0 ]]; then
+    err "The update did not complete. The previous installation is still in place."
+  fi
+  return "$status"
 }

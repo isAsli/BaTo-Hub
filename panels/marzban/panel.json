@@ -1,0 +1,28 @@
+{
+  "name": "marzban",
+  "display_name": "Marzban",
+  "version": "0.0.3",
+  "description": "Marzban panel integration. Marzban is a Python and React panel installed under /opt/marzban by the official Marzban scripts.",
+  "service_name": "marzban",
+  "default_port": 8000,
+  "default_path": "/opt/marzban",
+  "config_paths": [
+    "/opt/marzban/.env"
+  ],
+  "data_paths": [
+    "/var/lib/marzban"
+  ],
+  "database_type": "sqlite|mysql|mariadb",
+  "cli_name": "marzban",
+  "requirements": [
+    "curl",
+    "ca-certificates",
+    "openssl",
+    "acme.sh"
+  ],
+  "ssl_method": "acme.sh issuance into BaToHub state storage; uvicorn certificate options in .env are updated when they are already present",
+  "template_method": "CUSTOM_TEMPLATES_DIRECTORY with SUBSCRIPTION_PAGE_TEMPLATE",
+  "supports_bare_ip_ssl": false,
+  "supports_reseller": false,
+  "update_method": "official Marzban script"
+}

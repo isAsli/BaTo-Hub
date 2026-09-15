@@ -1,13 +1,29 @@
 {
   "name": "3x-ui",
   "display_name": "3X-UI (Sanaei)",
-  "version": "0.0.2",
-  "description": "Sanaei 3X-UI panel integration placeholder.",
-  "service_name": "3x-ui",
-  "default_port": "6090",
-  "default_path": "/opt/3x-ui",
-  "config_paths": ["/opt/3x-ui/config.json"],
-  "requirements": ["curl", "ca-certificates", "openssl"],
-  "ssl_method": "manual",
-  "template_method": "disabled"
+  "version": "0.0.3",
+  "description": "3X-UI panel integration. 3X-UI is installed under /usr/local/x-ui with its configuration and database in /etc/x-ui.",
+  "service_name": "x-ui",
+  "default_port": 2053,
+  "default_path": "/usr/local/x-ui",
+  "config_paths": [
+    "/etc/x-ui",
+    "/etc/default/x-ui"
+  ],
+  "data_paths": [
+    "/etc/x-ui/x-ui.db"
+  ],
+  "database_type": "sqlite|postgres",
+  "cli_name": "x-ui",
+  "requirements": [
+    "curl",
+    "ca-certificates",
+    "openssl",
+    "acme.sh"
+  ],
+  "ssl_method": "acme.sh issuance into BaToHub state storage; the certificate is registered with the panel CLI only when that CLI reports support for certificate options",
+  "template_method": "the panel serves subscription content from its own web settings; BaToHub stages template files and never edits the panel database",
+  "supports_bare_ip_ssl": false,
+  "supports_reseller": false,
+  "update_method": "official 3X-UI installer"
 }

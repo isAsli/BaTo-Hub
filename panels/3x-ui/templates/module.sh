@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-. /opt/batohub/lib/common.sh
-
-template_menu() {
-  clear
-  banner '3X-UI / Templates'
-  printf '%s\n' 'Not implemented in this release.'
-  pause
-}
+# 3X-UI template handling.
+#
+# 3X-UI generates subscription output from settings stored in its own database
+# and offers no documented external template directory. BaToHub therefore stages
+# the template inside its own state storage and reports exactly that, instead of
+# editing the panel database.
 
 template_apply() {
-  err "Template application is not implemented for 3X-UI in this release."
-  return 1
+  need_root || return 1
+  template_stage_apply
+}
+
+template_status() {
+  template_stage_status
 }
 
 template_remove() {
-  err "Template removal is not implemented for 3X-UI in this release."
-  return 1
+  need_root || return 1
+  template_stage_remove
 }

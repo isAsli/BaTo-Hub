@@ -1,86 +1,106 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-need_root
+# BaToHub uninstaller.
+#
+# Only files that BaToHub created are removed. Panels, their databases, their
+# configuration and their certificates are never touched. Backup archives can be
+# moved out of BaToHub state storage instead of being deleted.
 
-local _base _conf _state _log _cmd _input _hook _panel_file
-_base="${INSTALL_DIR:-/opt/BaToHub}"
-_conf="${CONFIG_DIR:-/etc/BaToHub}"
-_state="${STATE_DIR:-/var/lib/BaToHub}"
-_log="${LOG_DIR:-/var/log/BaToHub}"
-_cmd="/usr/local/bin/BaToHub"
-_panel_file="${_conf}/panel.conf"
-
-echo
-info "BaToHub uninstall - review before proceeding."
-info ""
-info "This command removes BaToHub-managed files listed below."
-info "Panels and their configurations are not removed automatically."
-echo
-info "The following BaToHub-owned locations will be removed:"
-info "  $_base"
-info "  $_base/bin"
-info "  $_base/core"
-info "  $_base/lib"
-info "  $_base/security"
-info "  $_base/panels"
-info "  $_conf"
-info "  $_state"
-info "  $_log"
-info "  $_cmd"
-echo
-
-if ! read -r -p "Type REMOVE to continue: " _input; then
-  echo "Cancelled."
-  exit 0
+if [[ -z "${BATOHUB_ROOT:-}" ]]; then
+  self_path="${BASH_SOURCE[0]}"
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$self_path" 2>/dev/null || true)"
+    [[ -n "$resolved" ]] && self_path="$resolved"
+  fi
+  BATOHUB_ROOT="$(cd "$(dirname "$self_path")/.." && pwd)"
 fi
+export BATOHUB_ROOT
 
-if [ "${_input:-}" != "REMOVE" ]; then
-  echo "Cancelled."
-  exit 0
-fi
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/common.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/panel_helpers.sh"
 
-if [ -f "$_panel_file" ]; then
-  echo
-  warn "Current panel configuration will be removed with BaToHub."
-  warn "Panel data and certificates are not touched."
-  echo
-fi
+assume_yes=0
+keep_backups=0
+for argument in "$@"; do
+  case "$argument" in
+  --yes | -y) assume_yes=1 ;;
+  --keep-backups) keep_backups=1 ;;
+  -h | --help)
+    printf 'Usage: %s [--yes] [--keep-backups]\n' "$0"
+    exit 0
+    ;;
+  *)
+    printf 'ERROR: unknown option: %s\n' "$argument" >&2
+    exit 2
+    ;;
+  esac
+done
 
-if [ -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh ]; then
-  echo
-  warn "Optional: remove the BaToHub Certbot renewal hook? [y/N]"
-  if ! read -r -p "> " _hook; then
-    echo "Cancelled."
+need_root || exit 1
+
+global_command="${GLOBAL_CMD_NAME:-/usr/local/bin/BaToHub}"
+
+printf 'BaToHub uninstall\n'
+printf '%s\n' '----------------------------------------'
+printf 'The following BaToHub-managed paths will be removed:\n'
+printf '  %s\n' "$INSTALL_DIR"
+printf '  %s\n' "$CONFIG_DIR"
+printf '  %s\n' "$STATE_DIR"
+printf '  %s\n' "$LOG_DIR"
+printf '  %s\n' "$global_command"
+printf '\nPanels and their data are never removed. BaToHub-managed certificates\n'
+printf 'live under %s and are removed with the state directory.\n' "${STATE_DIR}/panels"
+printf '\n'
+
+if [[ "$assume_yes" != 1 ]]; then
+  if ! ui_confirm_phrase REMOVE 'Remove BaToHub from this server?'; then
+    printf 'Cancelled. Nothing was removed.\n'
     exit 0
   fi
-  if [ "${_hook:-}" = "y" ] || [ "${_hook:-}" = "Y" ]; then
-    rm -f /etc/letsencrypt/renewal-hooks/deploy/batohub-rebecca.sh
-    info "Removed Certbot renewal hook."
-  else
-    info "Certbot renewal hook left in place."
+fi
+
+moved_backups=""
+if [[ -d "${BACKUP_DIR}" ]] && [[ -n "$(ls -A "$BACKUP_DIR" 2>/dev/null || true)" ]]; then
+  if [[ "$keep_backups" != 1 ]] && [[ "$assume_yes" != 1 ]] && ui_confirm 'Keep the backup archives?'; then
+    keep_backups=1
+  fi
+  if [[ "$keep_backups" == 1 ]]; then
+    moved_backups="/var/backups/batohub-$(current_timestamp)"
+    if install -d -m 0700 -o root -g root "$moved_backups" &&
+      cp -a "${BACKUP_DIR}/." "$moved_backups/"; then
+      chmod -R 0600 "$moved_backups"
+      printf 'Backup archives kept at: %s\n' "$moved_backups"
+    else
+      printf 'WARNING: the backup archives could not be moved to /var/backups.\n' >&2
+      printf 'They remain at: %s\n' "$BACKUP_DIR" >&2
+      moved_backups=""
+    fi
   fi
 fi
 
-if [ -d "$_base" ]; then
-  rm -rf "$_base"
+if [[ -L "$global_command" ]]; then
+  if [[ "$(readlink "$global_command")" == "${INSTALL_DIR}/bin/batohub" ]]; then
+    rm -f -- "$global_command"
+    printf 'Removed command link: %s\n' "$global_command"
+  else
+    printf 'The command path %s points elsewhere and was not removed.\n' "$global_command"
+  fi
+elif [[ -f "$global_command" ]]; then
+  printf 'The command path %s is a regular file and was not removed.\n' "$global_command"
+  printf 'Remove it manually if BaToHub created it.\n'
 fi
 
-if [ -d "$_conf" ]; then
-  rm -rf "$_conf"
-fi
+for target in "$STATE_DIR" "$LOG_DIR" "$CONFIG_DIR" "$INSTALL_DIR"; do
+  if [[ -d "$target" ]]; then
+    rm -rf -- "$target"
+    printf 'Removed: %s\n' "$target"
+  fi
+done
 
-if [ -d "$_state" ]; then
-  rm -rf "$_state"
+if [[ -n "$moved_backups" ]]; then
+  printf '\nBackup archives were preserved at %s\n' "$moved_backups"
 fi
-
-if [ -d "$_log" ]; then
-  rm -rf "$_log"
-fi
-
-if [ -L "$_cmd" ] || [ -f "$_cmd" ]; then
-  rm -f "$_cmd"
-fi
-
-echo
-info "BaToHub removal finished."
+printf '\nBaToHub removal finished. No panel or panel data was touched.\n'

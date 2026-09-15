@@ -1,21 +1,49 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-. /opt/batohub/lib/common.sh
+# PasarGuard subscription template.
 
-template_menu() {
-  clear
-  banner 'PasarGuard / Templates'
-  printf '%s\n' 'Not implemented in this release.'
-  pause
+PASARGUARD_TEMPLATE_RELATIVE="subscription/index.html"
+
+template_target() {
+  template_target_for "${PANEL_PATH}/.env" "$PASARGUARD_TEMPLATE_ROOT" "$PASARGUARD_TEMPLATE_RELATIVE"
 }
 
 template_apply() {
-  err "Template application is not implemented for PasarGuard in this release."
-  return 1
+  need_root || return 1
+  local env_file target source
+  env_file="${PANEL_PATH}/.env"
+  [[ -f "$env_file" ]] || {
+    err "PasarGuard configuration file was not found at ${env_file}"
+    return 1
+  }
+  source="$(template_resolve_source)"
+  [[ -n "$source" ]] || return 1
+  target="$(template_target)"
+  template_apply_file "$source" "$target" || return 1
+  panel_env_set "$env_file" CUSTOM_TEMPLATES_DIRECTORY \
+    "$(template_root_for "$env_file" "$PASARGUARD_TEMPLATE_ROOT")" || return 1
+  panel_env_set "$env_file" SUBSCRIPTION_PAGE_TEMPLATE "$PASARGUARD_TEMPLATE_RELATIVE" || return 1
+  panel_restart_safe "$PANEL_SERVICE" || true
+  ok "The BaToHub subscription template is installed for PasarGuard."
+}
+
+template_status() {
+  template_file_status "$(template_target)" || true
+  printf 'Template directory: %s\n' "$(template_root_for "${PANEL_PATH}/.env" "$PASARGUARD_TEMPLATE_ROOT")"
+  printf 'Subscription page option: %s\n' \
+    "$(read_env_value "${PANEL_PATH}/.env" SUBSCRIPTION_PAGE_TEMPLATE 2>/dev/null || printf 'not set')"
+  return 0
 }
 
 template_remove() {
-  err "Template removal is not implemented for PasarGuard in this release."
-  return 1
+  need_root || return 1
+  local target
+  target="$(template_target)"
+  if ! ui_confirm_phrase REMOVE "Remove the BaToHub-managed template at ${target}?"; then
+    return 0
+  fi
+  template_remove_file "$target" || true
+  panel_restart_safe "$PANEL_SERVICE" || true
+  return 0
 }

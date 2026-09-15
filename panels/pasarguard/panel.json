@@ -1,13 +1,28 @@
 {
   "name": "pasarguard",
   "display_name": "PasarGuard",
-  "version": "0.0.2",
-  "description": "PasarGuard panel integration placeholder.",
+  "version": "0.0.3",
+  "description": "PasarGuard panel integration. PasarGuard is installed under /opt/pasarguard by the official PasarGuard scripts.",
   "service_name": "pasarguard",
-  "default_port": "10086",
+  "default_port": 8000,
   "default_path": "/opt/pasarguard",
-  "config_paths": ["/opt/pasarguard/.env"],
-  "requirements": ["curl", "ca-certificates", "openssl"],
-  "ssl_method": "manual",
-  "template_method": "disabled"
+  "config_paths": [
+    "/opt/pasarguard/.env"
+  ],
+  "data_paths": [
+    "/var/lib/pasarguard"
+  ],
+  "database_type": "sqlite|mysql|mariadb|postgresql|timescaledb",
+  "cli_name": "pasarguard",
+  "requirements": [
+    "curl",
+    "ca-certificates",
+    "openssl",
+    "acme.sh"
+  ],
+  "ssl_method": "acme.sh issuance into BaToHub state storage; existing panel certificate options in .env are updated",
+  "template_method": "CUSTOM_TEMPLATES_DIRECTORY with SUBSCRIPTION_PAGE_TEMPLATE",
+  "supports_bare_ip_ssl": false,
+  "supports_reseller": false,
+  "update_method": "official PasarGuard script"
 }

@@ -1,28 +1,59 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-panel_menu() {
-  while :; do
-    clear
-    banner 'Rebecca'
-    printf '%s\n' '----------------------------------------'
-    printf '%s\n' '1) SSL'
-    printf '%s\n' '2) Subscription template'
-    printf '%s\n' '3) Update and status'
-    printf '%s\n' '4) Panel logs'
-    printf '%s\n' '0) Back'
-    read -r -p 'Selection: ' c
-    case "$c" in
-      1) ssl_menu;;
-      2) template_menu;;
-      3)
-        clear
-        banner 'Rebecca / Update and status'
-        panel_status
-        pause
-        ;;
-      4) panel_logs;;
-      0) return;;
+# Rebecca panel menu. Every entry reports what it did; nothing is printed as
+# successful unless the underlying operation returned success.
+
+panel_menu_impl() {
+  local choice state
+  while true; do
+    state="$(panel_status)"
+    ui_title "Rebecca (${state})"
+    printf '1) SSL management\n'
+    printf '2) Subscription template\n'
+    printf '3) Panel status\n'
+    printf '4) Panel update\n'
+    printf '5) Panel logs\n'
+    printf '6) Remove BaToHub-managed Rebecca changes\n'
+    printf '0) Back\n'
+    choice="$(ui_menu_choice)"
+    case "$choice" in
+    1)
+      printf '1) Issue  2) Renew  3) Status  4) Remove\n'
+      case "$(ui_menu_choice)" in
+      1) panel_ssl_issue ;;
+      2) panel_ssl_renew ;;
+      3) panel_ssl_status ;;
+      4) panel_ssl_remove ;;
+      esac
+      pause
+      ;;
+    2)
+      printf '1) Apply  2) Status  3) Remove\n'
+      case "$(ui_menu_choice)" in
+      1) panel_template_apply ;;
+      2) panel_template_status ;;
+      3) panel_template_remove ;;
+      esac
+      pause
+      ;;
+    3)
+      panel_status_menu
+      ;;
+    4)
+      panel_update
+      pause
+      ;;
+    5)
+      panel_logs
+      pause
+      ;;
+    6)
+      panel_uninstall
+      pause
+      ;;
+    0) return 0 ;;
+    *) warn 'Invalid selection.' ;;
     esac
   done
 }

@@ -1,9 +1,33 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-if [ ! -f /opt/batohub/core/main.sh ]; then
-  err "BaToHub is not installed or the core file is missing."
+# Global command. Works from any working directory: the installation root is
+# resolved from an environment override or from the location of this script, so
+# the command never depends on the caller's current directory.
+
+if [[ -z "${BATOHUB_ROOT:-}" ]]; then
+  self_path="${BASH_SOURCE[0]}"
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$self_path" 2>/dev/null || true)"
+    [[ -n "$resolved" ]] && self_path="$resolved"
+  fi
+  BATOHUB_ROOT="$(cd "$(dirname "$self_path")/.." && pwd)"
+fi
+export BATOHUB_ROOT
+
+main_file="${BATOHUB_ROOT}/core/main.sh"
+
+if [[ ! -r "$main_file" ]]; then
+  printf 'ERROR: BaToHub is not installed correctly.\n' >&2
+  printf 'Missing file: %s\n' "$main_file" >&2
+  printf 'Reinstall BaToHub with install.sh, then run this command again.\n' >&2
   exit 1
 fi
 
-exec /opt/batohub/core/main.sh "$@"
+if [[ ! -r "${BATOHUB_ROOT}/VERSION" ]]; then
+  printf 'ERROR: the BaToHub installation is incomplete (VERSION file is missing).\n' >&2
+  printf 'Reinstall BaToHub with install.sh, then run this command again.\n' >&2
+  exit 1
+fi
+
+exec bash "$main_file" "$@"

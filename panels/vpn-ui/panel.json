@@ -1,0 +1,29 @@
+{
+  "name": "vpn-ui",
+  "display_name": "VPN-UI",
+  "version": "0.0.3",
+  "description": "VPN-UI panel integration. Although VPN-UI descends from the same code base as 3X-UI, it is installed under /opt/vpn-ui by its own deployment script and is managed independently.",
+  "service_name": "vpn-ui",
+  "default_port": 2053,
+  "default_path": "/opt/vpn-ui",
+  "config_paths": [
+    "/opt/vpn-ui",
+    "/opt/vpn-ui/config.json"
+  ],
+  "data_paths": [
+    "/opt/vpn-ui/vpn-ui.db"
+  ],
+  "database_type": "sqlite",
+  "cli_name": "/opt/vpn-ui/vpn-ui-amd64",
+  "requirements": [
+    "curl",
+    "ca-certificates",
+    "openssl",
+    "acme.sh"
+  ],
+  "ssl_method": "acme.sh issuance into BaToHub state storage, including bare address certificates; the panel CLI is used only when it reports certificate support",
+  "template_method": "the panel serves subscription content from its own settings; BaToHub stages template files and never edits the panel database",
+  "supports_bare_ip_ssl": true,
+  "supports_reseller": true,
+  "update_method": "official VPN-UI deployment script"
+}

@@ -1,32 +1,113 @@
 {
-  "version": "0.0.2",
+  "version": "0.0.3",
   "app": "BaToHub",
-  "package": "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.2/BaToHub-0.0.2.zip",
-  "sha256": "",
-  "release_url": "https://github.com/isAsli/BaTo-Hub/releases/tag/v0.0.2",
-  "gpg_signature_file": "manifest.json.asc",
+  "release_url": "https://github.com/isAsli/BaTo-Hub/releases/tag/v0.0.3",
+  "package": "https://github.com/isAsli/BaTo-Hub/releases/download/v0.0.3/BaToHub-0.0.3.zip",
   "panels": [
     {
-      "name": "rebecca",
-      "display_name": "Rebecca",
-      "version": "0.0.2",
-      "status": "supported"
+      "name": "3x-ui",
+      "display_name": "3X-UI (Sanaei)",
+      "version": "0.0.3"
+    },
+    {
+      "name": "marzban",
+      "display_name": "Marzban",
+      "version": "0.0.3"
     },
     {
       "name": "pasarguard",
       "display_name": "PasarGuard",
-      "version": "0.0.2",
-      "status": "supported"
+      "version": "0.0.3"
     },
     {
-      "name": "3x-ui",
-      "display_name": "3X-UI (Sanaei)",
-      "version": "0.0.2",
-      "status": "supported"
+      "name": "rebecca",
+      "display_name": "Rebecca",
+      "version": "0.0.3"
+    },
+    {
+      "name": "vpn-ui",
+      "display_name": "VPN-UI",
+      "version": "0.0.3"
+    }
+  ],
+  "tools": [
+    {
+      "name": "foxima",
+      "display_name": "Foxima",
+      "version": "0.0.3"
     }
   ],
   "supported": {
-    "os": ["Ubuntu 22.04", "Ubuntu 24.04"],
-    "arch": ["amd64", "arm64"]
+    "os": [
+      "Ubuntu 22.04",
+      "Ubuntu 24.04",
+      "Debian 12"
+    ],
+    "arch": [
+      "amd64",
+      "arm64"
+    ]
+  },
+  "files": {
+    "VERSION": "4cac276b6ec5d4c71cd96ca2e7b762eb125439adbc8721de5613106d1345fe2d",
+    "bin/batohub": "8f226e66c840a3eda48e66b8aee1e5d27a41b1bf6fc1b361f49f84438f24defb",
+    "bin/uninstall": "aefacf522b0f4850b02b0cce2f3152cf74b0636e3c304aa8764b5bd15121367f",
+    "config/batohub.conf": "2aa1d844a274cec751893b5aabccbbda154d377c0a0688cbc73cd8b40d2129e2",
+    "core/backup_manager.sh": "f102713bc3729b3526a265e32839d6290c7826b047604d9660a3d10211167837",
+    "core/main.sh": "816445e35e9291a536b5577c073c73a7c47c54edec213bc6f1e56a4f6806472b",
+    "core/panel_loader.sh": "beab89a36ff17d3f2c99367c4d03bbe48c30ad45a464471f7a28403f55c43d3b",
+    "core/tools_manager.sh": "b3cc48a764118651fce1e6e12220487b57a3bbd4049eec002676a1069610fb25",
+    "core/update.sh": "48b058020cd46da5ed90d42093c487173949feb705fee3e507162774e57c9eaf",
+    "install.sh": "10d7e8b49dbc76559bfe5c9f35459a63dd5366cc89f29c9912d4951a6120f218",
+    "lib/backup_helpers.sh": "691c11320e0216ebc2aecec0193e1334eeed195104a460ae67aecda0044e5ad9",
+    "lib/common.sh": "15c7f70bfb6b1c6dcdcafeaac932682e64994d68004e948312c28f4c1f9dabed",
+    "lib/panel_helpers.sh": "c6229b2898c6a83d9bcde91cb2d1275e84dd84c1977f1bcb19f1c1db118adfff",
+    "lib/ssl_helpers.sh": "a73aa1449cdc97f87e6d0a35c8e75b17769de2906cf897b9a72e50b789fdb5a5",
+    "lib/template_helpers.sh": "c07b374e65c21bedcb3ab6d152d01edadaa4b8dcd9ad9d3b8fbc6805390c96fe",
+    "panels/3x-ui/menu/module.sh": "8bba893f0c8e310f3d630e74f29d8bf024a27dee81fd8c89929667a245454df1",
+    "panels/3x-ui/module.sh": "a0dee4fa80a43d5530a1134b37cdd779f9c9810be4c5b366c9a8c3541b1c29d3",
+    "panels/3x-ui/panel.json": "3d188a2b0fc2bc433b2c94bfb276c83ee820ad6ee94b1256969ca6a3d006ef31",
+    "panels/3x-ui/ssl/module.sh": "03d62d279976f77a10c0860480af93e82cb3a686e03cb8bd871156c6a7abce6b",
+    "panels/3x-ui/templates/module.sh": "8e03ba091ddc8798cf66b6ab74cf25cd5d09c93038a90874482d5a6648a476af",
+    "panels/3x-ui/templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
+    "panels/3x-ui/update/module.sh": "144bbb71ccf9f12c1a3829a5688bd08e709e7b1bd3ef80f8586bbadd2e66db56",
+    "panels/marzban/menu/module.sh": "8197f89d12499d2f502f5c90db10c2e6e4fe7264bd5d368c1fcd9960af359b28",
+    "panels/marzban/module.sh": "d672391f12724e8d687b893a720b32b13cb082ed7b4b4ccd4d7647eeb5d01e96",
+    "panels/marzban/panel.json": "0067b9edd3c8310d58ea09ade46445d2baf9648f61fcbe8cb0026d9de861601e",
+    "panels/marzban/ssl/module.sh": "65150905d682422f6a9d50408f6b7785f2632600da89de97cedf7d72c2730e6d",
+    "panels/marzban/templates/module.sh": "34b9cff6a3f4b7ba687f4b85dcaf2877dff43089489327b3a8be74b99fb2fcf1",
+    "panels/marzban/templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
+    "panels/marzban/update/module.sh": "cd15e6c0bee67117aaa9fd8f6c2e92b15cec6b33f4614c28b994e1135db11c4c",
+    "panels/pasarguard/menu/module.sh": "de92737dd55da00fd5b8b5bf28b16e2695134b33c831e06bc6dea3e2c00b1c76",
+    "panels/pasarguard/module.sh": "7583c776b34ba41ccc0edbc08da12673cb2748970ef6a4f2a267c2f6485a75f3",
+    "panels/pasarguard/panel.json": "5550ac0bedcc37bd310b9e183f2c057446075d53109c2f5c5d9038cb5ba24046",
+    "panels/pasarguard/ssl/module.sh": "0563f3c562bb108c18cec0bc9149ad7ea3bac659fe21cbd1daa0cf910fb85f66",
+    "panels/pasarguard/templates/module.sh": "128717527ef5c35c8a8c521bd7e6a360e94515e6edcc8733fa15408e30bf2931",
+    "panels/pasarguard/templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
+    "panels/pasarguard/update/module.sh": "992e30eeabf35c897cd1b0d9ad7605511c9853c908b7a49790d7b1c8755e2514",
+    "panels/rebecca/menu/module.sh": "474374604bbee33f93187533b84829b113e188059c0e623c1c0af7e275f3a9c8",
+    "panels/rebecca/module.sh": "e2235356ed0732662f1a31554c7d8bb3562025e0b3fbe9d63f2ed52b49b39b8b",
+    "panels/rebecca/panel.json": "183787382f0f79f1df6a6dc9e5e3ed5f056e3210e51c39405b04020c91edcdd3",
+    "panels/rebecca/ssl/module.sh": "c40560f85ba176f9ea74055fc83f3d4f5830adc0bb280a520ba871a468d45565",
+    "panels/rebecca/templates/module.sh": "573f379263ca25e5f56306a6d806ec3ebe4e2a93abf91c7c04ed0c361f4ae62a",
+    "panels/rebecca/templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
+    "panels/rebecca/update/module.sh": "d20f26c9dd4cf751f02d2a5ec7e2766c66bb6e36cd90afb230d0b69e4de23250",
+    "panels/vpn-ui/menu/module.sh": "3427efe06ce05126fb96eafb5d531a874889526b66957efa18e03e646dc24e73",
+    "panels/vpn-ui/module.sh": "5d565c4f2418683fab12102b9e4dc217c3ca8426a583b1175cf456da0a1df48c",
+    "panels/vpn-ui/panel.json": "a36d70ebabec8b29b997a49926f0dcc0159250b19de161dad3f97c9b3f6ef3b4",
+    "panels/vpn-ui/ssl/module.sh": "1bbf7313568e72954ba3fc1bdd86d4e20206bedf7ac35997e7fd8c878d1d8b47",
+    "panels/vpn-ui/templates/module.sh": "4c0cb83a3d2f6f3a3dccb0c3c151abf464c2a39a64a0ed57c8391bc16ac1221e",
+    "panels/vpn-ui/templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
+    "panels/vpn-ui/update/module.sh": "7395bd3228335b3d86cbb68b0bbe4820a4ecba771f3bb9ca7752e336b5d06003",
+    "scripts/build-release.sh": "1a226fe97fe80ec01a501a2f7c3738fd7bbe78a411868fafde5f3ac3bfc2be2c",
+    "scripts/checks.sh": "df12da03de9b942aad1888af06783e785ade711f9e81fde919e7c495657b2d91",
+    "scripts/checks_text.py": "a524a87e998ac193d8732f5dbff4969d4ff45d3e4791faffb7db65770e7dd0e8",
+    "scripts/container-verify.sh": "34eecf21ea5cd3f64a772a6654279b964f304ac75197e172a06a51ada8055c01",
+    "scripts/verify-install.sh": "0317c3797e003f305f201fb30f4d39a2275574b3f90964e8cb41449b5ee58df0",
+    "security/integrity.sh": "54d37dfbad392fe4dc14c427c123f28d4f90adaa975af9e78f130b0702b0a349",
+    "tools/foxima/install/module.sh": "2a5c8ee4ccb991423891103a938cefbb71db8d7ae5b896a1a83db7393537edc7",
+    "tools/foxima/menu/module.sh": "bdc2f5beb822d4c0cf4c6d9c67daafdd2200ef1db3481ab45b61e6cb648f1528",
+    "tools/foxima/module.sh": "ccd66d5b94f1728cd02dde38ab5e5d77a0c7f804af4fea4406c076722bc8cb4c",
+    "tools/foxima/tool.json": "10aa83a43310339bf98b5d0adc3c68ec1a3b036225df6179199008571f26f364"
   }
 }

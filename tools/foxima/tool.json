@@ -1,0 +1,22 @@
+{
+  "name": "foxima",
+  "display_name": "Foxima",
+  "version": "0.0.3",
+  "description": "Foxima is a PHP management interface that supports several panel families. BaToHub guides the operator through the official installer instead of reimplementing it.",
+  "service_name": "",
+  "default_port": 80,
+  "default_path": "/var/www/foxima",
+  "config_paths": [
+    "/var/www/foxima"
+  ],
+  "data_paths": [],
+  "requirements": [
+    "php",
+    "mariadb-server",
+    "curl"
+  ],
+  "supports_bare_ip_ssl": false,
+  "supports_reseller": false,
+  "update_method": "official Foxima installer",
+  "installer_url": "https://raw.githubusercontent.com/Mmd-Amir/Faoxima/main/install.sh"
+}
