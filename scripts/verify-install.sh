@@ -98,8 +98,8 @@ step "panel interface"
 for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
   state="$("$COMMAND" --panel "$panel" status 2>/dev/null | tail -n 1 || true)"
   case "$state" in
-    running | stopped | not_installed) ok "panel ${panel} reports a valid status (${state})" ;;
-    *) no "panel ${panel} reports a valid status (got: ${state})" ;;
+  running | stopped | not_installed) ok "panel ${panel} reports a valid status (${state})" ;;
+  *) no "panel ${panel} reports a valid status (got: ${state})" ;;
   esac
   version="$("$COMMAND" --panel "$panel" version 2>/dev/null | tail -n 1 || true)"
   if [[ -n "$version" ]]; then
@@ -117,13 +117,13 @@ expect_output "panel uninstall leaves the panel in place" "does not remove" \
 for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
   output="$("$COMMAND" --panel "$panel" template-apply 2>&1 || true)"
   case "$output" in
-    *"Staged template"* | *"BaTo-Ui is installed"* | *"configuration file was not found"*)
-      ok "panel ${panel} template apply reports what it did"
-      ;;
-    *)
-      no "panel ${panel} template apply reports what it did"
-      printf '     actual output: %s\n' "$output" >&2
-      ;;
+  *"Staged template"* | *"BaTo-Ui is installed"* | *"configuration file was not found"*)
+    ok "panel ${panel} template apply reports what it did"
+    ;;
+  *)
+    no "panel ${panel} template apply reports what it did"
+    printf '     actual output: %s\n' "$output" >&2
+    ;;
   esac
   output="$("$COMMAND" --panel "$panel" template-status 2>&1 || true)"
   if [[ -n "$output" ]]; then

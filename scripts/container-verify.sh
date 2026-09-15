@@ -136,7 +136,7 @@ mkdir -p "${ROOTFS}/src"
 for entry in "$ROOT"/*; do
   [[ -e "$entry" ]] || continue
   case "$(basename "$entry")" in
-    .git | node_modules) continue ;;
+  .git | node_modules) continue ;;
   esac
   cp -a "$entry" "${ROOTFS}/src/"
 done

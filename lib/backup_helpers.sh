@@ -169,13 +169,13 @@ backup_declared_paths() {
 backup_map_destination() {
   local relative="$1"
   case "$relative" in
-    etc/batohub) printf '%s\n' "$CONFIG_DIR" ;;
-    etc/batohub/*) printf '%s/%s\n' "$CONFIG_DIR" "${relative#etc/batohub/}" ;;
-    var/lib/batohub) printf '%s\n' "$STATE_DIR" ;;
-    var/lib/batohub/*) printf '%s/%s\n' "$STATE_DIR" "${relative#var/lib/batohub/}" ;;
-    var/log/batohub) printf '%s\n' "$LOG_DIR" ;;
-    var/log/batohub/*) printf '%s/%s\n' "$LOG_DIR" "${relative#var/log/batohub/}" ;;
-    *) printf '/%s\n' "$relative" ;;
+  etc/batohub) printf '%s\n' "$CONFIG_DIR" ;;
+  etc/batohub/*) printf '%s/%s\n' "$CONFIG_DIR" "${relative#etc/batohub/}" ;;
+  var/lib/batohub) printf '%s\n' "$STATE_DIR" ;;
+  var/lib/batohub/*) printf '%s/%s\n' "$STATE_DIR" "${relative#var/lib/batohub/}" ;;
+  var/log/batohub) printf '%s\n' "$LOG_DIR" ;;
+  var/log/batohub/*) printf '%s/%s\n' "$LOG_DIR" "${relative#var/log/batohub/}" ;;
+  *) printf '/%s\n' "$relative" ;;
   esac
 }
 
