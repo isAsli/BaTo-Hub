@@ -89,6 +89,16 @@ What is in this release
 - The tagged-source fallback is refused unless BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 is set, because no checksum is published for that archive.
 - Backup, restore and import with a checksummed archive and a member allowlist that rejects absolute paths, parent traversal, undeclared members, and links whose location or target leaves the destination roots, transactional restore and a safety backup.
 - Self-update from a pinned release with SHA-256 verification, protected paths, an installation snapshot and rollback.
+- Servers and nodes: registration, listing, status, restart and deregistration of remote panel nodes through each panel's own API, with one record per node, the identifier the panel assigned recorded, and no write on the remote machine.
+- Multiple domains per panel, each registered with its purpose, with a wildcard name switching to DNS validation, a reload hook registered at issuance, and revocation with a recorded outcome.
+- Backup delivery to a Telegram chat on an hourly, daily or weekly schedule, with splitting of a large archive, a ledger of what was delivered, and a token that never reaches a command line or a log.
+- Migration between panels: accounts read from one panel and created on another through the APIs of both, with a preview, a backup of both panels before the write, a verification of the result, and a report of every account that could not be migrated. The source receives no write.
+- Server tools: firewall rules, fail2ban jails and bans, BBR and TCP tuning, system limits, time zone and NTP, each reporting the current state before a change.
+- Docker: detection of whether a panel runs in a container, from a Compose stack or as a system service, with status, logs, restart, resource counters and image update following the detected mode.
+- Alerts: nine conditions covering panel state, nodes, certificates, an outdated panel version, disk, memory, CPU load, a stale backup and a failed update, delivered to Telegram, by email or to a webhook, with per-alert thresholds and cooldowns, and nothing enabled until an operator enables it.
+- Accounts and roles: several operator accounts with hashed passwords, six roles and twenty-two permissions, checked when the menu is built and again when an action runs, with every action recorded.
+- Reports: ten reports rendered on screen or exported as CSV or JSON, with a retention policy for the exports.
+- Telegram bot: remote operation with thirteen commands, each mapped to a BaToHub account that holds the permissions that command needs, an unlisted user id refused without a reply, and every command and refusal recorded.
 - No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
 
 Git history
@@ -99,7 +109,8 @@ Verification performed before publication
 
 - scripts/checks.sh: shell syntax, shellcheck, shfmt formatting, JSON metadata, the panel and tool interfaces, version consistency, the release manifest, the git history and the text hygiene rules.
 - scripts/build-release.sh --verify-archive: every archive member against manifest.json, and the archive against its SHA-256 sidecar.
-- scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, the version commands, templates, backup, restore, crafted archives that must each be refused, panel selection and uninstall.
+- scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, the version commands, templates, backup, restore, crafted archives that must each be refused, panel selection, the node, certificate, delivery, migration, server, container, alert, account, report and bot command surfaces, and uninstall.
+- scripts/integration-test.sh: local services that implement the endpoints each panel declares plus the Bot API methods, driven by the documented commands, covering authentication, request bodies, response parsing, error handling, state files and their permissions, node registration and deregistration, migration, delivery, alerts, accounts, reports and the management bot. The panels themselves are not installed, so a panel's own installer and protocol handling are not exercised.
 - scripts/container-verify.sh ubuntu:22.04 and debian:12: installation into a clean distribution userland, followed by the documented commands, tamper detection and uninstall. The logs are attached to this workflow run as build artifacts.
 
 Installation
