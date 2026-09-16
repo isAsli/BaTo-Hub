@@ -250,6 +250,36 @@ if ! grep -q 'GNU GENERAL PUBLIC LICENSE' LICENSE || ! grep -q 'Version 3, 29 Ju
 fi
 pass "required documents present"
 
+step "documentation structure"
+# The English and Persian documents must stay in step: the same numbered
+# sections in the same order, so a reader can cross reference one against the
+# other. Either a missing section or a reordered one fails the check.
+if doc_problems="$(python3 -c '
+import os, re, sys
+
+
+def sections(path):
+    with open(path, encoding="utf-8") as handle:
+        return [m.group(1) for m in (re.match(r"^##\s+(\d+)\.", line) for line in handle) if m]
+
+
+root = sys.argv[1]
+problems = []
+for english, persian in (("README.md", "README.fa.md"), ("DOCS.md", "DOCS.fa.md")):
+    en = sections(os.path.join(root, english))
+    fa = sections(os.path.join(root, persian))
+    if not en:
+        problems.append(f"{english} has no numbered sections")
+    elif en != fa:
+        problems.append(f"{english} sections {en} do not match {persian} sections {fa}")
+sys.stdout.write("; ".join(problems))
+sys.exit(1 if problems else 0)
+' "$ROOT" 2>&1)"; then
+  pass "English and Persian documents share the same section numbers"
+else
+  fail "documentation sections do not match: ${doc_problems}"
+fi
+
 step "source hygiene"
 if python3 scripts/checks_text.py "$ROOT"; then
   :
