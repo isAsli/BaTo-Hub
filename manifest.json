@@ -137,7 +137,7 @@
     "scripts/integration-stub.py": "e5188a54472f8738912f16611ee92d4e305544d95d8c23d99b00146598e6efac",
     "scripts/integration-test.sh": "59b77bbd9aac54f5d8f812a35fc7b7445994cb2c0417a573c73614c139a4656f",
     "scripts/release-body.sh": "01176e799568dbc101a77fc2fc8c2bc968f839506235bde559685965cbb7193e",
-    "scripts/verify-install.sh": "d35bde586a7686033aaf7c94acf1074fc602453c89792bf071d40d93a4b56c5b",
+    "scripts/verify-install.sh": "33317a2de26bfb0a2bddb6d9cef16482f1818a70acf00ae65d5530fca32c8fb1",
     "security/integrity.sh": "f892d5365153f27228e2503b0852d9ddadd7f97311246f96ad6058c4b91b7936",
     "templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
     "tools/foxima/install/module.sh": "2147d23bac617b8570bfb50715ba845da5dae5df8970aa74f6cb60d8a34d690f",

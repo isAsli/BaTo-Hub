@@ -353,7 +353,10 @@ expect_output "the permission table is printed" "admins.manage" "$COMMAND" admin
 expect_output "the roles are printed" "backup-manager" "$COMMAND" admin roles
 expect_output "the report names are printed" "admin_actions" "$COMMAND" --reports list
 expect_output "the bot reports its state" "Command log:" "$COMMAND" --bot status
-expect_output "the firewall state is reported" "ufw" "$COMMAND" --server firewall status
+# The state is reported from the firewall itself when it is installed and the
+# absence is reported when it is not, so the assertion accepts either form.
+check "the firewall state is reported" \
+  bash -c "'$COMMAND' --server firewall status 2>&1 | grep -qE 'Status: (active|inactive)|ufw is not installed'"
 expect_output "the bbr state is reported" "tcp_congestion_control" "$COMMAND" --server bbr status
 expect_output "the limit state is reported" "Process limits" "$COMMAND" --server limits show
 expect_output "the clock state is reported" "Current time:" "$COMMAND" --server time status
