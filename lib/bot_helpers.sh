@@ -32,8 +32,8 @@ bot_config_ensure() {
 #   TELEGRAM_BOT_USERS=\"123456789:admin1,987654321:admin2\"
 # A user id that is not listed is refused, without a reply. TELEGRAM_BOT_CHATS
 # restricts the bot to specific chats; when it is empty every chat of a listed
-# user is accepted. An entry is either a chat id or the pair "user id:chat id"
-# that keeps one listed user out of the chat of another.
+# user is accepted. An entry is either a chat id or the pair user id and chat id
+# joined by a colon, which keeps one listed user out of the chat of another.
 TELEGRAM_BOT_TOKEN=\"\"
 TELEGRAM_BOT_USERS=\"\"
 TELEGRAM_BOT_CHATS=\"\"
