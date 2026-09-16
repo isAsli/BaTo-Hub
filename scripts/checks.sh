@@ -9,6 +9,7 @@ set -Eeuo pipefail
 #   3. JSON validity for every metadata file
 #   4. panel and tool interface checks
 #   5. documentation, hygiene and wording checks
+#   6. inline python programs, which the shell can silently alter
 #
 # Exits non-zero if any check fails.
 
@@ -58,6 +59,14 @@ TOOL_FUNCTIONS=(
 TOOL_FIELDS=(source_repo supports_version_pinning version_pin_scope dev_channel_argument)
 
 PANEL_FILES=(panel.json module.sh ssl/module.sh templates/module.sh update/module.sh menu/module.sh)
+
+# Every section the release documents has to be both defined and reachable from
+# the hub menu, so a section cannot be documented while the interface has no way
+# to open it.
+FEATURE_SECTIONS=(
+  nodes_menu ssl_menu_multi backup_delivery_menu migration_menu server_tools_menu
+  container_menu alerts_menu reports_menu bot_menu admins_menu
+)
 
 step "shell syntax"
 while IFS= read -r file; do
@@ -278,6 +287,69 @@ sys.exit(1 if problems else 0)
   pass "English and Persian documents share the same section numbers"
 else
   fail "documentation sections do not match: ${doc_problems}"
+fi
+
+step "feature sections"
+for function_name in "${FEATURE_SECTIONS[@]}"; do
+  if grep -rqE "^${function_name}\\(\\)" core lib; then
+    :
+  else
+    fail "no section defines ${function_name}"
+  fi
+  if grep -q "\\b${function_name}\\b" core/hub_menu.sh; then
+    :
+  else
+    fail "${function_name} is not reachable from the hub menu"
+  fi
+done
+[[ "$FAILURES" -eq 0 ]] && pass "every documented section is defined and reachable"
+
+step "documentation coverage"
+if python3 - "$ROOT" <<'PY'; then
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+docs = (root / "DOCS.md").read_text(encoding="utf-8")
+fa = (root / "DOCS.fa.md").read_text(encoding="utf-8")
+
+alerts = (root / "lib/alert_helpers.sh").read_text(encoding="utf-8")
+alert_block = re.search(r"ALERT_TYPES=\((.*?)\)", alerts, re.S)
+alert_names = [line.strip() for line in alert_block.group(1).splitlines() if line.strip()]
+
+admins = (root / "lib/admin_helpers.sh").read_text(encoding="utf-8")
+permission_block = re.search(r"ADMIN_PERMISSIONS=\((.*?)\)", admins, re.S)
+permissions = [line.strip() for line in permission_block.group(1).splitlines() if line.strip()]
+
+reports = (root / "lib/report_helpers.sh").read_text(encoding="utf-8")
+report_body = re.search(r"report_names\(\) \{(.*?)\n\}", reports, re.S).group(1)
+report_names = [
+    token for token in re.findall(r"[a-z][a-z_]{2,}", report_body) if token not in {"printf", "return"}
+]
+
+problems = []
+for label, names in (("alert", alert_names), ("permission", permissions), ("report", report_names)):
+    for name in names:
+        if name not in docs:
+            problems.append("%s %s is not described in DOCS.md" % (label, name))
+        elif name not in fa:
+            problems.append("%s %s is not described in DOCS.fa.md" % (label, name))
+for item in problems:
+    print("FAIL [documentation] %s" % item)
+print("ok   %d alert(s), %d permission(s) and %d report(s) are documented" % (len(alert_names), len(permissions), len(report_names)))
+sys.exit(1 if problems else 0)
+PY
+  :
+else
+  FAILURES=$((FAILURES + 1))
+fi
+
+step "inline python programs"
+if python3 scripts/checks_inline.py "$ROOT"; then
+  pass "every inline python program is intact"
+else
+  FAILURES=$((FAILURES + 1))
 fi
 
 step "source hygiene"

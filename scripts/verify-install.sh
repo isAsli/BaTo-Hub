@@ -341,6 +341,60 @@ check "panel.conf mode is 0600" test "$(stat -c '%a' "$ETC_DIR/panel.conf")" = "
 expect_output "panel.conf records the panel" "PANEL=rebecca" cat "$ETC_DIR/panel.conf"
 expect_output "--status reports the configured panel" "Rebecca" "$COMMAND" --status
 
+step "version 0.0.5 command surface"
+expect_output "registered nodes are listed" "No node is registered" "$COMMAND" --nodes list
+expect_output "node-supporting panels are listed" "marzban" "$COMMAND" --nodes panels
+expect_output "registered certificate names are listed" "No name is registered" "$COMMAND" --ssl list
+expect_output "the delivery reports its state" "Delivery:" "$COMMAND" --backup-deliver status
+expect_output "every panel is listed with its container mode" "pasarguard" "$COMMAND" --container list
+expect_output "the supported migrations are printed" "marzban -> pasarguard" "$COMMAND" --migration pairs
+expect_output "the alert types are printed" "version_outdated" "$COMMAND" --alerts types
+expect_output "the permission table is printed" "admins.manage" "$COMMAND" admin permissions
+expect_output "the roles are printed" "backup-manager" "$COMMAND" admin roles
+expect_output "the report names are printed" "admin_actions" "$COMMAND" --reports list
+expect_output "the bot reports its state" "Command log:" "$COMMAND" --bot status
+expect_output "the firewall state is reported" "ufw" "$COMMAND" --server firewall status
+expect_output "the bbr state is reported" "tcp_congestion_control" "$COMMAND" --server bbr status
+expect_output "the limit state is reported" "Process limits" "$COMMAND" --server limits show
+expect_output "the clock state is reported" "Current time:" "$COMMAND" --server time status
+
+# Every section the usage text documents must answer on the command line rather
+# than report an unknown command.
+unrecognised=0
+while IFS= read -r invocation; do
+  [[ -n "$invocation" ]] || continue
+  if "$COMMAND" $invocation 2>&1 | grep -qE 'Unknown command|Unknown option|Unknown argument'; then
+    no "the documented command is recognised: ${invocation}"
+    unrecognised=$((unrecognised + 1))
+  fi
+done <<'EOF'
+--nodes list
+--nodes panels
+--ssl list
+--backup-deliver status
+--container list
+--container mode marzban
+--migration pairs
+--alerts types
+--alerts status
+--reports list
+--reports exports
+--bot status
+--bot users
+admin list
+admin permissions
+admin roles
+--server firewall status
+--server fail2ban status
+--server bbr status
+--server limits show
+--server time status
+--panel rebecca versions
+EOF
+if [[ "$unrecognised" -eq 0 ]]; then
+  ok "every documented command is recognised"
+fi
+
 step "uninstall"
 if uninstall_output="$(bash "$PREFIX/bin/uninstall" --yes 2>&1)"; then
   ok "uninstaller completed"
