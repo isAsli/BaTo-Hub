@@ -338,7 +338,7 @@ Edit a copy of the shared template, then install it through the prompt path or p
 `BaToHub --restore FILE`, or the Restore menu. The restore:
 
 1. Verifies the SHA-256 sidecar.
-2. Validates the metadata file itself, then every archive member: members must be relative, free of parent traversal, below the BaToHub destination roots (`/etc/batohub`, `/var/lib/batohub`, `/var/log/batohub`), declared in the metadata, and symlinks must not point outside those roots. Any failure aborts the restore before anything is written.
+2. Validates the metadata file itself, then every archive member: members must be relative, free of parent traversal, below the BaToHub destination roots (`/etc/batohub`, `/var/lib/batohub`, `/var/log/batohub`), declared in the metadata, and symlinks or hard links must not point outside those roots. Link members are read from the archive structure rather than from the tar listing, and an archive whose links cannot be read is refused. Any failure aborts the restore before anything is written.
 3. Creates a safety backup of the current state.
 4. Extracts into a temporary directory and copies the declared paths into place, mapping packaged defaults onto configured directories when the installation uses non-default paths.
 

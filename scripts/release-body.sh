@@ -87,7 +87,7 @@ What is in this release
 - One tool module: Foxima, with detection, install, update, status, logs, configuration guidance, and removal limited to the changes BaToHub manages.
 - Integrity manifest with a SHA-256 entry for every shipped file, and the optional INTEGRITY_HARD_FAIL setting that refuses to open the interface when a file differs from the manifest.
 - The tagged-source fallback is refused unless BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 is set, because no checksum is published for that archive.
-- Backup, restore and import with a checksummed archive and a member allowlist, transactional restore and a safety backup.
+- Backup, restore and import with a checksummed archive and a member allowlist that rejects absolute paths, parent traversal, undeclared members, and links whose location or target leaves the destination roots, transactional restore and a safety backup.
 - Self-update from a pinned release with SHA-256 verification, protected paths, an installation snapshot and rollback.
 - No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
 
@@ -99,7 +99,7 @@ Verification performed before publication
 
 - scripts/checks.sh: shell syntax, shellcheck, shfmt formatting, JSON metadata, the panel and tool interfaces, version consistency, the release manifest, the git history and the text hygiene rules.
 - scripts/build-release.sh --verify-archive: every archive member against manifest.json, and the archive against its SHA-256 sidecar.
-- scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, the version commands, templates, backup, restore, panel selection and uninstall.
+- scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, the version commands, templates, backup, restore, crafted archives that must each be refused, panel selection and uninstall.
 - scripts/container-verify.sh ubuntu:22.04 and debian:12: installation into a clean distribution userland, followed by the documented commands, tamper detection and uninstall. The logs are attached to this workflow run as build artifacts.
 
 Installation

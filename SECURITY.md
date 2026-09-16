@@ -114,7 +114,7 @@ These checks are structural and functional verification of BaToHub itself. They 
 - The update mechanism trusts the configured GitHub repository over HTTPS. An attacker who controls that repository, or the account that publishes its releases, can publish a different tree. Verifying the SHA-256 against the release assets narrows this to whoever can publish a release; it does not remove the trust.
 - Release archives are signed with GPG only when a `SIGNING_KEY` secret is configured. When no key is configured, the release carries SHA-256 checksums only, and no signature is claimed anywhere.
 - Panel-specific correctness is verified structurally (interface functions, declared paths, version reporting). It is not verified behaviorally against live upstream panel installations as part of the release pipeline.
-- Restore validation rejects absolute paths, parent traversal, undeclared members, and symlinks outside the BaToHub destination roots, but it cannot protect against an attacker who can already write to the BaToHub state directory.
+- Restore validation rejects absolute paths, parent traversal, undeclared members, paths the metadata does not declare, and links whose location or target leaves the BaToHub destination roots. Link members are read from the archive structure, and an archive whose links cannot be read is refused instead of being restored unverified. Both refusals are exercised with crafted archives by `scripts/verify-install.sh`. It cannot protect against an attacker who can already write to the BaToHub state directory.
 - A backup archive contains panel configuration, which can include secrets. The archives are mode 0600 and owned by root, and they are not encrypted.
 
 ## No Bug Bounty
