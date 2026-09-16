@@ -12,12 +12,21 @@ set -Eeuo pipefail
 # Usage: bash scripts/container-verify.sh IMAGE [WORK_DIR]
 #   IMAGE   for example ubuntu:22.04 or debian:12
 #
+# Two source modes are supported:
+#   checkout (default)  install.sh installs from the copied checkout.
+#   release             install.sh resolves BATOHUB_RELEASE_TAG and installs the
+#                       published release asset, which is the path the
+#                       documented one-liner takes. Set BATOHUB_VERIFY_SOURCE=release
+#                       and BATOHUB_RELEASE_TAG=vX.Y.Z to run it.
+#
 # The script must run as root. It exits non-zero when any step fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Read from VERSION so the checks never carry a version literal of their own.
 RELEASE_VERSION="$(tr -d '[:space:]' <"${ROOT}/VERSION")"
 export BATOHUB_EXPECTED_VERSION="$RELEASE_VERSION"
+SOURCE_MODE="${BATOHUB_VERIFY_SOURCE:-checkout}"
+export BATOHUB_VERIFY_SOURCE="$SOURCE_MODE"
 IMAGE="${1:?usage: container-verify.sh IMAGE [WORK_DIR]}"
 IMAGE_REF="${IMAGE%%:*}"
 IMAGE_TAG="${IMAGE#*:}"
@@ -34,6 +43,15 @@ fail() {
 }
 
 [[ "$(id -u)" -eq 0 ]] || fail "this script must run as root"
+
+case "$SOURCE_MODE" in
+checkout) ;;
+release)
+  [[ -n "${BATOHUB_RELEASE_TAG:-}" ]] ||
+    fail "BATOHUB_VERIFY_SOURCE=release requires BATOHUB_RELEASE_TAG"
+  ;;
+*) fail "BATOHUB_VERIFY_SOURCE must be checkout or release, not ${SOURCE_MODE}" ;;
+esac
 
 cleanup() {
   local mount_point
@@ -144,8 +162,23 @@ for entry in "$ROOT"/*; do
   cp -a "$entry" "${ROOTFS}/src/"
 done
 
-step "running install.sh inside ${IMAGE}"
-if ! chroot "$ROOTFS" /bin/bash -c 'cd /src && BATOHUB_SOURCE_DIR=/src bash install.sh' \
+step "running install.sh inside ${IMAGE} (source: ${SOURCE_MODE})"
+# The environment of the chroot is cleared of anything that would change the
+# installation paths or the source, so the run reflects a plain installation.
+install_env="env -u BATOHUB_SOURCE_DIR -u BATOHUB_ROOT -u INSTALL_DIR"
+install_env="${install_env} -u CONFIG_DIR -u STATE_DIR -u LOG_DIR -u GLOBAL_CMD_NAME"
+if [[ "$SOURCE_MODE" == "release" ]]; then
+  # The installer is placed on its own: a directory that holds VERSION and
+  # panels/ is installed from the checkout instead of the published release, and
+  # the documented one-liner also runs the installer outside a release tree.
+  rm -rf "${ROOTFS}/verify"
+  install -d -m 0755 "${ROOTFS}/verify"
+  cp -a "${ROOT}/install.sh" "${ROOTFS}/verify/install.sh"
+  install_command="cd /verify && ${install_env} BATOHUB_RELEASE_TAG=${BATOHUB_RELEASE_TAG} bash install.sh"
+else
+  install_command="cd /src && ${install_env} BATOHUB_SOURCE_DIR=/src bash install.sh"
+fi
+if ! chroot "$ROOTFS" /bin/bash -c "${install_command}" \
   >"${WORK}/install.log" 2>&1; then
   tail -n 40 "${WORK}/install.log" >&2
   fail "install.sh failed inside ${IMAGE}"
@@ -193,6 +226,14 @@ BaToHub --restore "$archive" >/dev/null || fail "--restore"
 
 BaToHub --rebuild-integrity >/dev/null || fail "--rebuild-integrity"
 BaToHub --check || fail "--check after rebuild"
+
+if [ "${BATOHUB_VERIFY_SOURCE:-checkout}" = "release" ]; then
+  grep -q "release asset downloaded" /var/log/batohub/install.log ||
+    fail "the installer did not download a release asset"
+  grep -q "SHA-256 verified against the published .sha256 asset" /var/log/batohub/install.log ||
+    fail "the installer did not verify a published release asset"
+  echo "published release asset downloaded and verified by the installer"
+fi
 
 printf "tamper detection: "
 echo "" >> /opt/batohub/core/main.sh

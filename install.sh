@@ -198,7 +198,11 @@ else
   STEP="release asset download"
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/batohub.install.XXXXXX")"
   manifest_url="https://github.com/${BATOHUB_REPO}/releases/download/${release_tag}/manifest.json"
-  if curl --fail --silent --show-error --retry 3 --proto '=https' \
+  # --location is required: a release asset URL answers with a redirect to the
+  # object store, and without it curl stores the empty redirect body and
+  # reports success. --proto-redir keeps the redirect on HTTPS.
+  if curl --fail --silent --show-error --retry 3 --location \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "${temp_dir}/manifest.json" "$manifest_url" &&
     [[ -s "${temp_dir}/manifest.json" ]]; then
     manifest_version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${temp_dir}/manifest.json" | head -n 1 || true)"
@@ -219,7 +223,8 @@ else
   checksum_url="${asset_url}.sha256"
   asset_downloaded=0
 
-  if curl --fail --silent --show-error --retry 3 --proto '=https' \
+  if curl --fail --silent --show-error --retry 3 --location \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "${temp_dir}/${asset_name}" "$asset_url"; then
     asset_downloaded=1
     log_line "release asset downloaded: ${asset_name}"
@@ -230,7 +235,8 @@ else
   if [[ "$asset_downloaded" -eq 1 ]]; then
     STEP="release asset verification"
     checksum_ok=0
-    if curl --fail --silent --show-error --retry 3 --proto '=https' \
+    if curl --fail --silent --show-error --retry 3 --location \
+      --proto '=https' --proto-redir '=https' \
       --tlsv1.2 --output "${temp_dir}/${asset_name}.sha256" "$checksum_url"; then
       if (cd "$temp_dir" && sha256sum -c "${asset_name}.sha256" >/dev/null 2>&1); then
         checksum_ok=1
@@ -273,7 +279,8 @@ else
     STEP="tagged source archive download"
     archive_url="https://github.com/${BATOHUB_REPO}/archive/refs/tags/${release_tag}.tar.gz"
     log_line "falling back to the tagged source archive: ${archive_url}"
-    if ! curl --fail --location --show-error --retry 3 --proto '=https' \
+    if ! curl --fail --location --show-error --retry 3 \
+      --proto '=https' --proto-redir '=https' \
       --tlsv1.2 --output "${temp_dir}/source.tar.gz" "$archive_url"; then
       fail "the tagged source archive could not be downloaded from ${archive_url}"
     fi

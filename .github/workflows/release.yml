@@ -186,3 +186,26 @@ jobs:
             manifest.json.asc
           fail_on_unmatched_files: false
           generate_release_notes: false
+
+  # Publication is followed by an installation from the published assets in a
+  # clean userland. This is the path the documented one-liner takes, so a defect
+  # in it is reported by the workflow that published the release.
+  verify-published-release:
+    runs-on: ubuntu-latest
+    needs: publish
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the published release in a clean Ubuntu 22.04 userland
+        run: |
+          sudo BATOHUB_VERIFY_SOURCE=release BATOHUB_RELEASE_TAG="$GITHUB_REF_NAME" \
+            bash scripts/container-verify.sh ubuntu:22.04 | tee verify-published-release.log
+
+      - name: Upload the verification log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-published-release
+          path: verify-published-release.log
+          if-no-files-found: error

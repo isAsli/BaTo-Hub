@@ -51,7 +51,8 @@ tool_install_impl() {
   fi
   printf 'The official installer is interactive and may ask questions of its own.\n\n'
   tmp="$(mktemp_file foxima)"
-  if ! curl --fail --location --show-error --silent --retry 3 --proto '=https' \
+  if ! curl --fail --location --show-error --silent --retry 3 \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "$tmp" "$FOXIMA_INSTALLER_URL"; then
     rm -f -- "$tmp"
     err "The Foxima installer could not be downloaded from ${FOXIMA_INSTALLER_URL}"

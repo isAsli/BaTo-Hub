@@ -85,6 +85,42 @@ EMOJI = re.compile(
 )
 
 
+def logical_commands(text):
+    """Yields one string per shell command, joining backslash continuations."""
+    current = ""
+    for line in text.splitlines():
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            current += stripped[:-1] + " "
+            continue
+        current += stripped
+        yield current
+        current = ""
+    if current:
+        yield current
+
+
+def download_redirect_problems(text):
+    """curl commands that write to a file must follow redirects.
+
+    A release asset URL answers with a redirect to the object store. Without
+    --location curl stores the empty redirect body and still exits successfully,
+    so the download is reported as complete while nothing was fetched. Every
+    download that writes to a file is therefore required to follow redirects.
+    """
+    problems = []
+    for command in logical_commands(text):
+        if not re.search(r"\bcurl\b", command):
+            continue
+        if not re.search(r"(^|\s)(-o|--output)(\s|=)", command):
+            continue
+        # --location, or L inside a combined short option such as -fsSL.
+        if re.search(r"(^|\s)(--location|-[A-Za-z]*L[A-Za-z]*)(\s|$)", command):
+            continue
+        problems.append(" ".join(command.split())[:120])
+    return problems
+
+
 def iter_files(root):
     for base, dirs, names in os.walk(root):
         dirs[:] = [name for name in dirs if name not in SKIP_DIRS]
@@ -142,6 +178,8 @@ def main():
             for marker in PLACEHOLDER_MARKERS:
                 if re.search(marker, text, re.IGNORECASE):
                     problems.append(f"placeholder marker ({marker}) in {path}")
+            for command in download_redirect_problems(text):
+                problems.append(f"download writes to a file without following redirects in {path}: {command}")
 
     if problems:
         for item in sorted(set(problems)):

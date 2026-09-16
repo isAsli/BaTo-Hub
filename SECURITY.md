@@ -66,7 +66,7 @@ BaToHub records a SHA-256 entry for every file it ships, in `${CONFIG_DIR}/integ
 The self-update and the installer download a pinned release, never the `main` branch:
 
 1. The newest published release tag is resolved through the GitHub API over HTTPS.
-2. The release asset and its `manifest.json` are downloaded over HTTPS with certificate validation (`--proto '=https' --tlsv1.2 --fail`).
+2. The release asset and its `manifest.json` are downloaded over HTTPS with certificate validation (`--proto '=https' --tlsv1.2 --fail`). Release asset URLs answer with a redirect to the object store, so the downloads follow redirects and are restricted to HTTPS on the redirect as well (`--location --proto-redir '=https'`); a download that silently fetched nothing is refused rather than treated as complete.
 3. The asset SHA-256 is verified against the published `.sha256` sidecar. When the sidecar is unavailable, the SHA-256 recorded in `manifest.json` is used instead. When neither is available the download is refused.
 4. Nothing is extracted before verification passes.
 
@@ -88,6 +88,8 @@ Every release is verified before publication:
 - `scripts/build-release.sh` builds the archive from the files git tracks, so an untracked or unreviewed file cannot reach a release, then verifies every archive member against `manifest.json` and the archive against its `.sha256` sidecar. The release job stops when either check fails.
 - `scripts/verify-install.sh` passes: an isolated install that exercises the documented commands, the panel interface for all five panels, template apply, backup, restore, panel selection, and uninstall.
 - `scripts/container-verify.sh` passes against `ubuntu:22.04` and `debian:12`: installation into a clean distribution userland, followed by the documented commands, tamper detection, and uninstall. The pipeline runs these checks in CI and on every release, and their logs are attached to workflow runs as artifacts named `container-verify-ubuntu-2204` and `container-verify-debian-12`.
+
+Publication is followed by an installation from the published release assets into a clean Ubuntu 22.04 userland (`BATOHUB_VERIFY_SOURCE=release`). That is the download path the documented one-liner takes, so a defect in it makes the workflow that published the release fail instead of passing unnoticed.
 
 These checks are structural and functional verification of BaToHub itself. They are not a behavioral test of any panel against a live upstream installation.
 

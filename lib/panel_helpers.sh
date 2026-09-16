@@ -260,7 +260,8 @@ panel_fetch_official_installer() {
   tmp="$(mktemp_file installer)"
   # shellcheck disable=SC2064
   trap "rm -f -- '$tmp'" RETURN
-  if ! curl --fail --location --show-error --silent --retry 3 --proto '=https' \
+  if ! curl --fail --location --show-error --silent --retry 3 \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "$tmp" "$url"; then
     err "Download failed: $url"
     return 1

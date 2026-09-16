@@ -69,7 +69,11 @@ update_verify_downloaded() {
   local dir="$1" asset="$2"
   local checksum_ok=0
   # First anchor: the .sha256 sidecar published next to the release asset.
-  if curl --fail --silent --show-error --retry 3 --proto '=https' \
+  # --location is required: a release asset URL answers with a redirect to the
+  # object store, and without it curl stores the empty redirect body and
+  # reports success. --proto-redir keeps the redirect on HTTPS.
+  if curl --fail --silent --show-error --retry 3 --location \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "${dir}/${asset}.sha256" \
     "https://github.com/${GITHUB_REPO}/releases/download/${UPDATE_TAG}/${asset}.sha256"; then
     if (cd "$dir" && sha256sum -c "${asset}.sha256" >/dev/null 2>&1); then
@@ -101,7 +105,7 @@ update_verify_downloaded() {
 }
 
 update_fetch_remote() {
-  local dest="$1" url asset_name archive
+  local dest="$1" url asset_name archive fallback
   [[ -d "$dest" ]] || install -d "$dest"
 
   need_cmd curl || {
@@ -118,14 +122,20 @@ update_fetch_remote() {
 
   asset_name="BaToHub-${remote_version}.zip"
   url="https://github.com/${GITHUB_REPO}/releases/download/${UPDATE_TAG}/${asset_name}"
-  archive="$(mktemp_file update)"
+  # The archive is downloaded under its published name inside the update
+  # directory: the .sha256 sidecar names that file, and the checksum is checked
+  # in the directory that holds it.
+  archive="${dest}/${asset_name}"
+  fallback="${dest}/${asset_name}.tar.gz"
   # shellcheck disable=SC2064
-  trap "rm -f -- '${archive}'" RETURN
+  trap "rm -f -- '${archive}' '${fallback}'" RETURN
 
-  if curl --fail --silent --show-error --retry 3 --proto '=https' \
+  if curl --fail --silent --show-error --retry 3 --location \
+    --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "$archive" "$url"; then
     update_log "release asset downloaded: ${asset_name}"
-    curl --fail --silent --show-error --retry 3 --proto '=https' \
+    curl --fail --silent --show-error --retry 3 --location \
+      --proto '=https' --proto-redir '=https' \
       --tlsv1.2 --output "${dest}/manifest.json" \
       "https://github.com/${GITHUB_REPO}/releases/download/${UPDATE_TAG}/manifest.json" || true
     if [[ ! -r "${dest}/manifest.json" ]]; then
@@ -158,13 +168,14 @@ update_fetch_remote() {
   update_log "the release asset is not available: ${url}"
   url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${UPDATE_TAG}.tar.gz"
   update_log "falling back to the tagged source archive: ${url}"
-  curl --fail --location --show-error --retry 3 --proto '=https' \
-    --tlsv1.2 --output "$archive" "$url" || {
+  curl --fail --location --show-error --retry 3 \
+    --proto '=https' --proto-redir '=https' \
+    --tlsv1.2 --output "$fallback" "$url" || {
     err "Download failed: $url"
     return 1
   }
-  update_log "tagged source archive SHA-256: $(sha256sum "$archive" | awk '{print $1}')"
-  tar -xzf "$archive" -C "$dest" --strip-components=1 >>"$LOG_FILE" 2>&1 || {
+  update_log "tagged source archive SHA-256: $(sha256sum "$fallback" | awk '{print $1}')"
+  tar -xzf "$fallback" -C "$dest" --strip-components=1 >>"$LOG_FILE" 2>&1 || {
     err "The downloaded archive could not be extracted."
     return 1
   }
