@@ -69,6 +69,53 @@ Security:
 - Strict file and directory permissions; private keys are never printed.
 - No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
 
+Servers and nodes:
+
+- Registration, listing, restart and deregistration of remote panel nodes through the panel's own API, with one record per node under BaToHub state storage.
+- The identifier the panel assigns is recorded and used afterwards; the remote machine is never written to and never has data removed.
+
+Domains and certificates:
+
+- Several names per panel, each registered with its purpose (panel, subscription, custom).
+- Automatic switch to DNS-01 for a wildcard name, with provider credentials kept out of the process list, and a reload hook registered at issuance so a renewal is in use.
+- Revocation with a recorded outcome, and one certificate layout per panel.
+
+Backup delivery:
+
+- Scheduled delivery of a backup archive to a Telegram chat, with hourly, daily and weekly schedules, splitting of a large archive, and a ledger of what was delivered.
+- The token is never written to a log and never placed on a command line.
+
+Migration between panels:
+
+- Reading accounts from one panel and creating them on another through the APIs of both, with a preview, a backup of both panels before the write, a verification of the result, and a report of every account that could not be migrated.
+- The source panel receives no write of any kind.
+
+Server tools:
+
+- Firewall rules, fail2ban jails and bans, BBR and TCP tuning, system limits, time zone and NTP, each printing the current state before it changes anything.
+
+Docker:
+
+- Detection of whether each panel runs in a container, from a Compose stack, or as a system service, with status, logs, restart, resource counters and image update following the detected mode.
+
+Alerts and notifications:
+
+- Nine alert conditions covering panel state, nodes, certificates, an outdated panel version, disk, memory, CPU load, a stale backup and a failed update.
+- Telegram, SMTP and webhook delivery, per-alert thresholds and cooldowns, and no delivery at all until an alert is enabled.
+
+Accounts and roles:
+
+- Several operator accounts with hashed passwords, six roles and twenty-two permissions, checked when the menu is built and again when an action runs, with every action recorded.
+
+Reports:
+
+- Ten reports, rendered on screen or exported as CSV or JSON, with a retention policy for the exports.
+
+Telegram bot:
+
+- Remote operation from Telegram with thirteen commands, each mapped to a BaToHub account that holds the permissions the command needs.
+- An unlisted user id is refused without a reply, and every command and refusal is recorded.
+
 ## 3. Supported Panels
 
 | Name | Description | Install Path | Service Name | Default Port | Notes |

@@ -14,9 +14,19 @@
 - [10. Self-Update](#10-self-update)
 - [11. Security](#11-security)
 - [12. Logging and Troubleshooting](#12-logging-and-troubleshooting)
-- [13. Configuration Reference](#13-configuration-reference)
-- [14. Command Reference](#14-command-reference)
-- [15. FAQ](#15-faq)
+- [13. Servers and Nodes](#13-servers-and-nodes)
+- [14. Multiple Domains and Wildcard Certificates](#14-multiple-domains-and-wildcard-certificates)
+- [15. Backup Delivery to Telegram](#15-backup-delivery-to-telegram)
+- [16. Migration Between Panels](#16-migration-between-panels)
+- [17. Server Tools](#17-server-tools)
+- [18. Docker](#18-docker)
+- [19. Alerts and Notifications](#19-alerts-and-notifications)
+- [20. Admins and Roles](#20-admins-and-roles)
+- [21. Reports](#21-reports)
+- [22. Telegram Bot](#22-telegram-bot)
+- [23. Configuration Reference](#23-configuration-reference)
+- [24. Command Reference](#24-command-reference)
+- [25. FAQ](#25-faq)
 
 ## 1. Introduction
 
@@ -275,6 +285,8 @@ A tool is a directory under `tools/` with `tool.json`, `module.sh`, and the `ins
 
 ## 7. SSL
 
+This section covers the certificate of a single panel name. Registering several names for one panel, wildcard certificates, DNS validation and revocation are covered in section 14.
+
 ### 7.1 Per-Panel SSL Issuance
 
 Certificates are issued with acme.sh in standalone HTTP-01 mode and stored per panel under `/var/lib/batohub/panels/<panel>/ssl/<target>/`, with `fullchain.pem` (0644) and `privkey.pem` (0600). A marker file records which panel owns the directory; BaToHub refuses to touch a certificate directory owned by another panel. Port 80 must be free; the check names the current listener when it is not.
@@ -458,16 +470,552 @@ Send the report to **@DatPHP** with:
 
 Keep private keys, passwords and tokens out of reports.
 
-## 13. Configuration Reference
+## 13. Servers and Nodes
 
-### 13.1 batohub.conf
+A node is a remote server that a panel uses for its own workers, for example a Marzban node or a second worker for 3X-UI. BaToHub keeps the record of that node, makes the calls that register and deregister it through the panel's own API, and reports its state. It does not install anything on the remote machine and it never deletes data there.
+
+### 13.1 What BaToHub Owns
+
+| Item | Location | Notes |
+| --- | --- | --- |
+| Node record | `${STATE_DIR}/nodes/<panel>.<name>.conf` | Mode 0600, owner root:root, one key per line |
+| Registration calls | The panel's own API, per `panel.json` | No remote shell and no agent |
+| Operation log | `${LOG_DIR}/nodes.log` | One line per registration, restart and deregistration |
+
+The record holds `NODE_PANEL`, `NODE_NAME`, `NODE_ROLE`, `NODE_HOST`, `NODE_PORT`, `NODE_TLS`, `NODE_FINGERPRINT`, `NODE_ADDED_AT` and, once the panel has answered, `NODE_REMOTE_ID`. The identifier is what a later restart or deregistration addresses, so it is recorded rather than the address alone.
+
+### 13.2 Panel Credentials
+
+`${CONFIG_DIR}/nodes.conf`, mode 0600, holds the endpoint and the credential of each panel:
+
+| Key | Example | Description |
+| --- | --- | --- |
+| `NODES_API_BASE_<PANEL>` | `http://127.0.0.1:8000/marzban` | Base URL of the panel API |
+| `NODES_API_TOKEN_<PANEL>` | | API token, used when the panel declares token authentication |
+| `NODES_USER_<PANEL>` | `admin` | Administrator name, used when the panel declares session authentication |
+| `NODES_PASSWORD_<PANEL>` | | Administrator password for that session |
+
+`<PANEL>` is the panel identifier in upper case with a hyphen replaced by an underscore, for example `NODES_API_BASE_3X_UI`. The authentication mode of each panel (token, session, or session cookie) is declared by that panel's `panel.json`, so BaToHub never guesses it. Credentials are handed to the HTTP layer through a curl configuration file and never appear on a command line or in a log. A panel that rejects the credential stops the operation before any record is written.
+
+### 13.3 Registering a Node
+
+1. BaToHub validates the name, the role, the address and the port against the pattern the panel declares.
+2. It refuses a node that is already recorded for that panel, and names the existing record.
+3. It calls the panel's own add endpoint with the body the panel declares, including the role and the port.
+4. The panel assigns the identifier. BaToHub reads it back from the response and stores it in the record.
+5. It prints the node installer command taken from `node_installer_url` in `panel.json`, with the address, the port and the recorded fingerprint already filled in, so the remote side is prepared with the panel's own installer.
+6. It appends the outcome to `${LOG_DIR}/nodes.log` and to the main log.
+
+### 13.4 Node Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --nodes list` | Every recorded node with its panel, address, state and registration time |
+| `BaToHub --nodes panels` | The panels that declare node support |
+| `BaToHub --nodes panel-list NAME` | The nodes the panel itself reports |
+| `BaToHub --nodes show NAME NODE` | The record, the state read from the panel, and the recorded identifier |
+| `BaToHub --nodes restart NAME NODE` | Restart through the panel API |
+| `BaToHub --nodes logs NAME NODE` | Log tail from the panel API, or from `journalctl` for a local unit |
+| `BaToHub --nodes bundle NAME NODE` | The connection information and installer command to run on the remote server |
+| `BaToHub --nodes add NAME NODE ROLE HOST PORT [FINGERPRINT] [TLS]` | Register a node without the menu |
+| `BaToHub --nodes remove NAME NODE` | Deregister the node and remove the local record |
+
+### 13.5 Removing a Node
+
+`--nodes remove` deregisters the node through the panel with the identifier in the record, then removes the local record. The remote machine is not touched: no file is deleted there and no service is stopped there. When the panel refuses the deregistration, the record is kept and the refusal is reported, so the two sides cannot silently disagree about which nodes exist.
+
+### 13.6 Per-Panel Notes
+
+| Panel | Role | Default node port | Notes |
+| --- | --- | --- | --- |
+| Rebecca | `node` | 62050 | Registered through the panel API; the installer command is the one the panel documents |
+| Marzban | `node` | 62050 | Session authentication; the identifier the panel returns is recorded and used for restart |
+| PasarGuard | `node` | 62050 | Registered through the panel API |
+| 3X-UI | `node` | 62050 | Session cookie authentication |
+| VPN-UI | `node` | 62050 | Managed under its own paths, independently of 3X-UI |
+
+## 14. Multiple Domains and Wildcard Certificates
+
+A panel can answer on more than one name: its administration domain, its subscription domain, and any further name an operator uses. Each name is registered per panel, so the certificate layout of one panel is never inferred from another's.
+
+### 14.1 Purpose per Name
+
+| Purpose | Meaning |
+| --- | --- |
+| `panel` | The name the administration interface is served on |
+| `subscription` | The name subscription links are served on |
+| `custom` | Any other name for the same panel |
+
+The purpose is recorded with the name so `--ssl status` can report which names belong to the panel and which belong to subscriptions, and so a renewal can reload the right service.
+
+### 14.2 Registration
+
+`${CONFIG_DIR}/ssl/<panel>.conf`, mode 0600, holds one entry per line: the name, its purpose, the method used, the issuance time and the certificate fingerprint. A name is registered before a certificate is requested for it, and a name that belongs to another panel is refused rather than silently moved.
+
+### 14.3 Method Selection
+
+| Situation | Method |
+| --- | --- |
+| An ordinary name and free port 80 | `http-01` |
+| A wildcard name such as `*.example.com` | `dns-01` |
+| Validation not possible for the name | `self-signed`, clearly marked as untrusted and for testing |
+
+A wildcard name cannot be validated over HTTP-01, so the entry switches to DNS-01 and needs the provider API in `${CONFIG_DIR}/ssl/dns.conf`, mode 0600. Provider credentials are exported into the `acme.sh` process environment from that file. They are never passed on a command line and never printed. When the provider is not configured, the wildcard entry is refused with an explanation instead of falling back to a method that cannot validate it.
+
+### 14.4 Certificate Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --ssl list` | Every registered name with its panel, purpose, method, issuance time and expiry |
+| `BaToHub --ssl register PANEL NAME [PURPOSE]` | Register a name for a panel |
+| `BaToHub --ssl unregister PANEL NAME` | Stop managing a name; the certificate files are kept |
+| `BaToHub --ssl issue PANEL NAME` | Request a certificate for a registered name |
+| `BaToHub --ssl renew PANEL` | Renew every certificate of that panel |
+| `BaToHub --ssl status PANEL` | Reported state, method, remaining days and fingerprint |
+| `BaToHub --ssl revoke PANEL NAME` | Revoke a certificate and record the revocation |
+
+### 14.5 Renewal Hooks
+
+At issuance BaToHub registers a reload command with `acme.sh` for that certificate, so a renewal restarts the service that serves it. The reload command is the panel restart path, which means a renewed certificate is in use after the renewal instead of only on disk.
+
+### 14.6 Isolation and Logging
+
+Two panels never share a certificate path. The certificate directory carries a marker naming the panel that owns it, and BaToHub refuses to touch a directory owned by another panel. Every issuance, renewal and revocation is appended to `${LOG_DIR}/ssl.log` with a timestamp, the name, the method and the outcome; no key material is written to the log.
+
+## 15. Backup Delivery to Telegram
+
+BaToHub can create a backup on a schedule and deliver the archive to a Telegram chat, so an archive exists off the server without a second service.
+
+### 15.1 Configuration
+
+`${CONFIG_DIR}/telegram.conf`, mode 0600, owner root:root:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | empty | Token of the bot that delivers the archive |
+| `TELEGRAM_CHAT_ID` | empty | Chat that receives the archive |
+| `TELEGRAM_BACKUP_ENABLED` | `0` | `1` enables scheduled delivery |
+| `TELEGRAM_BACKUP_SCHEDULE` | `daily` | `hourly`, `daily` or `weekly` |
+| `TELEGRAM_BACKUP_KEEP_REMOTE` | `7` | How many delivered archives are kept in the chat |
+| `TELEGRAM_MAX_UPLOAD_BYTES` | `45000000` | Size above which an archive is split before it is sent |
+
+### 15.2 Schedule
+
+`BaToHub --backup-deliver` writes a systemd timer when systemd is present and a cron entry otherwise. The timer runs `BaToHub --backup-deliver send`, which creates the archive, delivers it, records the result and then applies the local retention policy in `BACKUP_KEEP`. An hourly schedule runs at the start of the hour, daily at 03:30, weekly on Monday at 03:30.
+
+### 15.3 What Is Delivered
+
+1. The archive is created first. An archive that could not be created stops the delivery and nothing is sent.
+2. An empty archive is never sent.
+3. A large archive is split into parts below `TELEGRAM_MAX_UPLOAD_BYTES`, and every part is sent as a document with its index in the caption.
+4. The delivery is confirmed from the API response. A response without a message identifier is treated as a failure and is reported as one.
+5. The ledger `${BACKUP_DIR}/telegram-delivered`, mode 0600, records the archive name, the message identifier and the time, so what was delivered can be listed and compared with what is on disk.
+
+The delivery states plainly whether an archive is encrypted. When `TELEGRAM_BOT_BACKUP_PASSWORD` is set in the bot configuration, the archive is encrypted before it leaves the server; when it is not set, the archive is sent unencrypted and the message says so.
+
+### 15.4 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --backup-deliver status` | Configuration state, delivery state, schedule and retention |
+| `BaToHub --backup-deliver test` | Send a test message and report whether it arrived |
+| `BaToHub --backup-deliver send` | Create an archive and deliver it now |
+| `BaToHub --backup-deliver ledger` | The archives that were delivered, with times and message identifiers |
+
+### 15.5 Security of the Token
+
+The token is read from the configuration file and passed to the HTTP layer through a curl configuration file, so it does not appear on a command line or in the process list. It is never written to a log and never included in an error message; a request that fails is reported with its status code and without the URL. The configuration file is created at mode 0600 and re-checked on every use.
+
+## 16. Migration Between Panels
+
+Migration reads accounts from one panel and creates them on another through the APIs of both. It never writes to the source and never removes anything.
+
+### 16.1 Supported Pairs
+
+| Source | Destination | Data |
+| --- | --- | --- |
+| Marzban | PasarGuard | Accounts |
+| Marzban | Rebecca | Accounts |
+| PasarGuard | Marzban | Accounts |
+| PasarGuard | Rebecca | Accounts |
+| Rebecca | Marzban | Accounts |
+| 3X-UI | VPN-UI | Inbounds |
+| VPN-UI | 3X-UI | Inbounds |
+
+`BaToHub --migration pairs` prints the list the running release supports. A pair is offered only when both panels declare the endpoint that the direction needs, so a pair listed here is a pair the shipped code can actually perform.
+
+### 16.2 Flow
+
+1. The source panel is read through its own API: accounts, status, expiry, data limit and used traffic; for the 3X-UI family, inbounds with their protocol, port and settings.
+2. The records are mapped to the destination format. A field the destination cannot hold is reported rather than dropped silently.
+3. A preview is printed: how many accounts will be created, how many are skipped, and why.
+4. The operator confirms.
+5. Both panels are backed up before anything is written.
+6. The destination is written through its own API.
+7. The result is read back and compared with the preview.
+8. Every account that could not be migrated is listed with the reason the destination gave.
+
+### 16.3 Safety Rules
+
+- The source panel receives no write of any kind. This is checked by the verification suite as well: after a migration, no creation request has been sent to the source.
+- An account that already exists on the destination is not overwritten without an explicit confirmation for that account.
+- Both panels are backed up before the write, and the backup paths are printed.
+- When the migration stops partway, the accounts already created are listed with their identifiers and the accounts that were not created are listed as well, so the destination state is known instead of assumed.
+- Every step is appended to the BaToHub log and to the migration output.
+
+### 16.4 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --migration pairs` | The supported directions |
+| `BaToHub --migration preview SRC DST` | Read the source and print what would be created, without writing |
+| `BaToHub --migration run SRC DST` | Back up both panels, write the destination and verify the result |
+
+### 16.5 Limits
+
+Traffic history is not transferred: a panel reports totals, not a per-day series, so an account arrives at the destination with its limits and its used total, not with a breakdown. Subscription links are not copied, because each panel builds its own from its own domain and inbound settings; the destination creates its own links after the account exists.
+
+## 17. Server Tools
+
+`BaToHub --server` groups the operating system tasks that are usually done by hand on a fresh server. Every subcommand prints the current state before it changes anything, and prints what it will change before it changes it.
+
+### 17.1 Firewall (UFW)
+
+| Operation | Behaviour |
+| --- | --- |
+| Show the state and the rules | Printed as the system reports them, with the default policy |
+| Open or close a port | The rule and its effect are printed before it is applied |
+| Allow a port from one address | The rule is restricted to that address |
+| Enable or disable the firewall | Existing rules are listed first; disabling requires a second confirmation |
+
+An existing rule is not overwritten without confirmation. When disabling the firewall would affect the session that is running BaToHub, that is detected from the listening ports and reported before the change.
+
+### 17.2 Fail2ban
+
+| Operation | Behaviour |
+| --- | --- |
+| Status and jails | The service state and the configured jails are printed |
+| Banned addresses | The current bans are listed per jail |
+| Unban | One address is removed from one jail |
+| Edit a jail | A drop-in under `/etc/fail2ban/jail.d/99-batohub.conf` is written, so the packaged configuration is not edited |
+| Install and restart | The package is installed through the system package manager and the service is restarted |
+
+### 17.3 BBR and TCP Tuning
+
+| Operation | Behaviour |
+| --- | --- |
+| Status | Congestion control, queue discipline and the current values |
+| Enable BBR | The kernel setting is written to `/etc/sysctl.d/99-batohub-bbr.conf` and applied |
+| Apply the tuning profile | A documented set of TCP values is written to the same drop-in |
+| Revert | The drop-in is removed and the kernel defaults are restored |
+
+The current values are printed before and after a change, so a revert has a recorded starting point.
+
+### 17.4 System Limits
+
+| Operation | Behaviour |
+| --- | --- |
+| Show | File descriptor limit and connection tracking limit as they are now |
+| Raise the file descriptor limit | Written to `/etc/security/limits.d/99-batohub.conf` |
+| Raise the connection tracking limit | Written to the same drop-in and applied |
+
+### 17.5 Time and NTP
+
+| Operation | Behaviour |
+| --- | --- |
+| Status | Current time, time zone and synchronisation state |
+| Set the time zone | Applied through `timedatectl` when it is available, otherwise written to `/etc/timezone` |
+| Enable NTP | Synchronisation is enabled and the state is read back |
+
+### 17.6 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --server firewall status` | Firewall state and rules |
+| `BaToHub --server firewall allow-port PORT` | Open a port |
+| `BaToHub --server firewall deny-port PORT` | Close a port |
+| `BaToHub --server firewall allow-from PORT ADDRESS` | Allow a port from one address |
+| `BaToHub --server firewall enable` / `disable` | Enable or disable the firewall |
+| `BaToHub --server fail2ban status` / `jails` / `banned` | Service state, jails, current bans |
+| `BaToHub --server fail2ban unban JAIL ADDRESS` | Remove one ban |
+| `BaToHub --server fail2ban install` / `restart` | Install or restart the service |
+| `BaToHub --server bbr status` / `enable` / `tuning` / `revert` | BBR and TCP tuning |
+| `BaToHub --server limits show` / `nofile SOFT HARD` / `conntrack VALUE` | System limits |
+| `BaToHub --server time status` / `timezone ZONE` / `ntp` | Time and synchronisation |
+
+## 18. Docker
+
+A panel may run in a container or directly on the host, and the two need different commands for status, logs, restart and update. BaToHub detects which one applies instead of assuming it.
+
+### 18.1 Detection
+
+Each `panel.json` declares `supports_docker` and, where it applies, `docker_container_name`. Detection looks at how the panel is present on this server: the panel's own directory for a Compose stack, and the container runtime when it is installed. A panel is never reported as a container because Docker happens to be installed, and never reported as native because Docker is absent.
+
+### 18.2 Modes
+
+| Mode | Meaning |
+| --- | --- |
+| `docker` | The panel runs in a container that was found on this server |
+| `compose` | The panel runs from a Compose stack in its directory |
+| `native` | The panel runs as a system service |
+| `none` | The panel is not installed |
+
+### 18.3 Operations
+
+| Operation | Behaviour when the panel is a container |
+| --- | --- |
+| Status | Container state, image, started time and restart count |
+| Logs | `docker logs` for that container, with the same tail the native path uses |
+| Restart | The container is restarted, not the host service unit |
+| Statistics | CPU, memory and network counters for that container |
+| Image update | The declared image is pulled and the container is recreated, after the panel's data volumes are confirmed |
+
+When the panel is native, every one of these operations uses the service unit and the panel's own log path, exactly as it did before Docker support existed.
+
+### 18.4 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --container list` | Every panel with its mode and container state |
+| `BaToHub --container mode PANEL` | The detected mode, with the evidence for it |
+| `BaToHub --container status PANEL` | State, image and uptime |
+| `BaToHub --container logs PANEL` | Log tail through the runtime or the service unit |
+| `BaToHub --container restart PANEL` | Restart through the runtime or the service unit |
+| `BaToHub --container stats PANEL` | Resource counters for the container, or the process for a native panel |
+| `BaToHub --container update PANEL` | Update the panel image and recreate the container |
+
+## 19. Alerts and Notifications
+
+Alerts read the state BaToHub already keeps and deliver a message when a condition holds. No agent is installed and no telemetry is collected.
+
+### 19.1 Alert Types
+
+| Alert | Condition | Default threshold |
+| --- | --- | --- |
+| `panel_down` | The managed panel is not running | none |
+| `node_offline` | A recorded node does not report a connected state | none |
+| `ssl_expiring` | A certificate expires within the threshold | 14 days |
+| `version_outdated` | The installed panel version differs from the newest published stable release | none |
+| `disk_usage` | Disk usage of `/`, `/var` or `/opt` is at or above the threshold | 85 percent |
+| `memory_usage` | Memory usage is at or above the threshold | 90 percent |
+| `cpu_load` | Load per processor is at or above the threshold | 4 |
+| `backup_stale` | The newest archive is older than the threshold | 48 hours |
+| `update_failed` | The most recent recorded update outcome is a failure | none |
+
+`version_outdated` is the only alert that makes an outbound request: it reads the release list of the panel's own repository. A panel whose repository cannot be read is reported as unknown and never as outdated.
+
+### 19.2 Enabled State
+
+No alert is enabled when the configuration file is created, and an alert with no entry in the file is off. Nothing is delivered until an operator enables a specific alert, and an alert added by a later release therefore stays silent until it is enabled deliberately. A run with a condition that holds and the alert disabled delivers nothing.
+
+### 19.3 Thresholds and Cooldowns
+
+Each alert has a threshold and a cooldown in seconds. The cooldown is recorded per alert in `${STATE_DIR}/alerts/<alert>.last`, so a condition that continues is not reported on every run. Memory and CPU alerts default to a cooldown of 900 seconds and the rest to 3600 seconds.
+
+### 19.4 Delivery
+
+| Channel | Configuration |
+| --- | --- |
+| Telegram | `TELEGRAM_BOT_TOKEN` in the Telegram configuration, or the same key in `alerts.conf` |
+| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO` |
+| Webhook | `ALERT_WEBHOOK_URL`, called with a POST and a JSON body |
+
+`${CONFIG_DIR}/alerts.conf` is mode 0600 and holds the credentials. They are never logged and never printed. When one channel fails, the failure is logged with the channel name and the next run tries again; a failed delivery does not mark the alert as delivered, so the condition is reported again rather than being lost.
+
+### 19.5 Schedule
+
+`BaToHub --alerts schedule` installs a systemd timer, or a cron entry when systemd is absent, which runs `BaToHub --alerts run` every fifteen minutes. `BaToHub --alerts unschedule` removes it. `--alerts check` evaluates the conditions without delivering anything, which is what the menu uses to show what currently holds.
+
+### 19.6 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --alerts status` | Every alert with its enabled state, threshold, cooldown and last delivery |
+| `BaToHub --alerts types` | The alert names this release supports |
+| `BaToHub --alerts check` | Evaluate the conditions and print those that hold, without delivering |
+| `BaToHub --alerts run` | Evaluate and deliver, honouring the cooldowns |
+| `BaToHub --alerts enable NAME` / `disable NAME` | Turn one alert on or off |
+| `BaToHub --alerts threshold NAME VALUE` | Set the threshold of one alert |
+| `BaToHub --alerts schedule` / `unschedule` | Install or remove the timer |
+
+## 20. Admins and Roles
+
+BaToHub can be operated by more than one account, each with the permissions of its role. The permission is checked when the menu is built and again when the action runs, so a hidden entry is not the only protection.
+
+### 20.1 Accounts
+
+`${CONFIG_DIR}/admins.conf`, mode 0600, owner root:root, holds one entry per account: the name, the role and a hash of the password. Passwords are hashed with the system `openssl passwd`. The account `root` is built in, always holds the full role and cannot be removed. When no account is recorded, the operator is `root` with the full role, which is the state of an installation that never used this section.
+
+### 20.2 Roles
+
+| Role | Permissions |
+| --- | --- |
+| `full` | Every permission |
+| `panel-manager` | Panels, templates, SSL, backups and migration; no server tools and no account management |
+| `ssl-manager` | View and the certificate permissions |
+| `backup-manager` | View and the backup permissions |
+| `read-only` | View only: panels, servers and alerts |
+| `custom` | The permissions chosen for that account |
+
+### 20.3 Permissions
+
+| Permission | Covers |
+| --- | --- |
+| `panels.view` | Listing panels and their state |
+| `panels.install` | Installing a panel |
+| `panels.update` | Updating a panel |
+| `panels.uninstall` | Removing BaToHub-managed changes for a panel |
+| `ssl.issue` | Requesting a certificate |
+| `ssl.renew` | Renewing certificates |
+| `ssl.revoke` | Revoking a certificate |
+| `templates.apply` | Applying a subscription template |
+| `templates.remove` | Removing a subscription template |
+| `backup.create` | Creating a backup and delivering it |
+| `backup.restore` | Restoring a backup |
+| `backup.delete` | Deleting a backup archive |
+| `servers.view` | Listing nodes |
+| `servers.add` | Registering a node |
+| `servers.remove` | Deregistering a node |
+| `tools.run` | Running the server tools |
+| `alerts.view` | Reading the alert state |
+| `alerts.configure` | Changing thresholds, delivery and the schedule |
+| `admins.manage` | Managing accounts and roles |
+| `settings.edit` | Editing settings, the bot and the integrity state |
+| `migration.run` | Running a migration |
+| `update.run` | Updating BaToHub |
+
+### 20.4 Enforcement
+
+- The acting account is read from `BATOHUB_ADMIN` when it is set, and otherwise from the account that started the process.
+- The main menu prints an entry only when the entry's permission is held, so a role is visible in the interface.
+- Every section checks the permission again before it acts, so a hidden entry is not the only gate.
+- Every action is appended to `${LOG_DIR}/admins.log` with the account, the action and the time. No password and no hash is written to any log.
+
+### 20.5 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub admin list` | The accounts with their roles |
+| `BaToHub admin status [NAME]` | One account with its role and its permissions |
+| `BaToHub admin permissions` | The permission names this release uses |
+| `BaToHub admin roles` | The roles with the permissions of each |
+| `BaToHub admin add NAME ROLE` | Create an account; the password is read from standard input |
+| `BaToHub admin remove NAME` | Remove an account that is not `root` |
+| `BaToHub admin passwd NAME` | Change a password |
+| `BaToHub admin role NAME ROLE` | Change a role |
+| `BaToHub admin check PERMISSION` | Report whether the acting account holds the permission; the exit status is 0 when it does |
+
+## 21. Reports
+
+Reports read the state BaToHub and the panels already hold and print it as a table, a CSV file or JSON.
+
+### 21.1 Reports
+
+| Report | Content |
+| --- | --- |
+| `panel_traffic` | Traffic per panel and the number of accounts behind it |
+| `user_traffic` | Traffic per account on every panel that reports accounts |
+| `user_counts` | Number of accounts per panel |
+| `active_users` | Accounts whose status is active, with expiry |
+| `expired_users` | Accounts that are expired, with expiry |
+| `ssl_status` | Registered names, method, issuance time and remaining days |
+| `backup_history` | Archives on disk with their sizes and times |
+| `update_history` | Recorded update outcomes |
+| `alert_history` | Alerts that were delivered, with the time |
+| `admin_actions` | Recorded administrative actions, with the account and the time |
+
+A panel that is not installed, or that does not report accounts, is left out of a report rather than shown as zero.
+
+### 21.2 Formats
+
+`screen` prints a padded table, `csv` prints a header line and one line per record, and `json` prints an array of objects keyed by the column names. The same rows are rendered in all three, so a value seen on screen is the value in the export.
+
+### 21.3 Exports and Rotation
+
+Exports are written to `${STATE_DIR}/reports/<report>-<timestamp>.<format>`, mode 0600, and the directory is kept at mode 0750. `REPORT_KEEP` sets how many exports are kept; a rotation removes the oldest exports first. Both an export and a rotation are recorded in the BaToHub log.
+
+### 21.4 Commands
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --reports list` | The report names this release supports |
+| `BaToHub --reports show NAME [screen|csv|json]` | Print one report |
+| `BaToHub --reports export NAME [csv|json]` | Write one report to the export directory |
+| `BaToHub --reports exports` | The exports on disk with their times and sizes |
+| `BaToHub --reports rotate` | Apply the retention policy now |
+
+## 22. Telegram Bot
+
+BaToHub can be operated from Telegram by a bot that runs as its own service. The bot maps each Telegram user to a BaToHub account and runs every command through the same permission gate the interface uses.
+
+### 22.1 Configuration
+
+`${CONFIG_DIR}/telegram_bot.conf`, mode 0600, owner root:root:
+
+| Key | Description |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Token of the bot |
+| `TELEGRAM_BOT_USERS` | Telegram user id to BaToHub account, as `123456789:root,987654321:ops` |
+| `TELEGRAM_BOT_CHATS` | Allowed chats: either a chat id, or a pair `user id:chat id` that keeps one listed user out of the chat of another. Empty means every chat of a listed user |
+| `TELEGRAM_BOT_BACKUP_PASSWORD` | Password used to encrypt a backup the bot sends; empty sends it unencrypted with a warning |
+| `TELEGRAM_BOT_POLL_TIMEOUT` | Long polling timeout in seconds |
+
+### 22.2 Commands
+
+| Command | Action |
+| --- | --- |
+| `/start`, `/help` | Show the account, its role and the command list |
+| `/status` | State of the managed panel |
+| `/panels` | Every panel with its state |
+| `/backup` | Create a backup and send it |
+| `/restore` | List backups; `/restore NAME` restores one that is named |
+| `/ssl` | Certificate state of the managed panel |
+| `/renew` | Renew the certificates of the managed panel |
+| `/users` | Account count and active accounts |
+| `/traffic` | Traffic summary |
+| `/alerts` | The alerts that currently hold |
+| `/update` | Check for a BaToHub update |
+| `/restart` | Restart the managed panel |
+| `/logs` | Last lines of the panel log |
+
+A command that carries an argument is checked against the permission that operation needs, exactly as the interface does. A listed user whose account does not hold the permission receives a refusal that names the permission.
+
+### 22.3 Authentication
+
+- A Telegram user id that is not listed is refused, and nothing is sent back to that chat. The refusal is recorded in the log; a reply would tell anyone who reaches the bot that this endpoint belongs to a BaToHub instance.
+- A listed user whose chat is not permitted is refused in the same way.
+- A listed user that maps to an account that does not exist is refused and the missing account is recorded.
+
+### 22.4 Logging
+
+`${LOG_DIR}/telegram-bot.log` records every command with the Telegram user id, the chat id, the BaToHub account and the command name, and every refusal with its reason. The token is never written to any log, and a command that fails records the failure without the message body.
+
+### 22.5 Service
+
+| Command | Description |
+| --- | --- |
+| `BaToHub --bot status` | Configuration state, listed users, allowed chats and log path |
+| `BaToHub --bot service` | Install and enable the systemd unit that runs the bot |
+| `BaToHub --bot remove-service` | Disable and remove that unit |
+| `BaToHub --bot logs` | Log tail of the bot |
+| `BaToHub --bot once` | Process one polling round; used by the verification suite |
+| `BaToHub --bot users` | The listed users and the account each maps to |
+| `BaToHub --bot check USER_ID [CHAT_ID]` | Report whether that user is authorised |
+
+### 22.6 What the Bot Never Sends
+
+The bot never sends a configuration file, a credential, a private key or a token. A backup it sends is encrypted when a password is configured, and is otherwise marked in its caption as unencrypted. Logs it sends are the last lines of the panel log, which the operator already controls through the panel.
+
+## 23. Configuration Reference
+
+### 23.1 batohub.conf
 
 `/etc/batohub/batohub.conf`, mode 0600, created by the installer, never overwritten by an update:
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `APP_NAME` | `BaToHub` | Project name shown in the interface |
-| `APP_VERSION` | `0.0.4` | Version, kept in step with the `VERSION` file |
+| `APP_VERSION` | `0.0.5` | Version, kept in step with the `VERSION` file |
 | `INSTALL_DIR` | `/opt/batohub` | Program files |
 | `CONFIG_DIR` | `/etc/batohub` | Configuration and integrity manifest |
 | `STATE_DIR` | `/var/lib/batohub` | Panel state, certificates, backups, locks |
@@ -479,8 +1027,11 @@ Keep private keys, passwords and tokens out of reports.
 | `GLOBAL_CMD_NAME` | `/usr/local/bin/BaToHub` | Path of the global command |
 | `USER_MANAGED_PATHS` | empty | Space separated paths the update never touches |
 | `INTEGRITY_HARD_FAIL` | `0` | `1` makes a failed integrity check refuse to open the interface |
+| `REPORT_KEEP` | `20` | Number of report exports kept in the export directory |
+| `API_TIMEOUT` | `30` | Seconds before a panel API request is abandoned |
+| `TELEGRAM_MAX_UPLOAD_BYTES` | `45000000` | Size above which a delivered archive is split into parts |
 
-### 13.2 panel.conf
+### 23.2 panel.conf
 
 `/etc/batohub/panel.conf`, mode 0600, written by BaToHub:
 
@@ -492,11 +1043,41 @@ Keep private keys, passwords and tokens out of reports.
 | `PANEL_DOMAIN` | Domain read from the panel configuration when one is present |
 | `INSTALLED_AT` | Date and time the panel was selected |
 
-### 13.3 Environment Variables
+### 23.3 Additional Configuration Files
 
-`INSTALL_DIR`, `CONFIG_DIR`, `STATE_DIR`, `LOG_DIR`, `BACKUP_DIR`, `BACKUP_KEEP`, `GLOBAL_CMD_NAME`, `GITHUB_REPO`, `GITHUB_BRANCH` and `INTEGRITY_HARD_FAIL` override the configuration file when set. The installer additionally reads `BATOHUB_RELEASE_TAG`, `BATOHUB_SOURCE_DIR` and `BATOHUB_ALLOW_UNVERIFIED_FALLBACK` (section 3.3). `SSL_ACME_BIN`, `FOXIMA_REPO_URL`, `FOXIMA_INSTALLER_URL`, `FOXIMA_PROJECT_DIR`, `FOXIMA_MANAGEMENT_CMD` and the per-panel `*_SCRIPT_URL` / `*_INSTALLER_URL` variables override the upstream sources and paths, which is useful for mirrors and relocated installations.
+| File | Mode | Content |
+| --- | --- | --- |
+| `${CONFIG_DIR}/nodes.conf` | 0600 | Panel endpoints and node API credentials (section 13.2) |
+| `${CONFIG_DIR}/telegram.conf` | 0600 | Backup delivery token, chat, schedule and retention (section 15.1) |
+| `${CONFIG_DIR}/telegram_bot.conf` | 0600 | Management bot token, listed users and allowed chats (section 22.1) |
+| `${CONFIG_DIR}/alerts.conf` | 0600 | Alert enable state, thresholds, cooldowns and delivery credentials (section 19) |
+| `${CONFIG_DIR}/admins.conf` | 0600 | Accounts with their roles and password hashes (section 20.1) |
+| `${CONFIG_DIR}/ssl/<panel>.conf` | 0600 | Registered names per panel with purpose and method (section 14.2) |
+| `${CONFIG_DIR}/ssl/dns.conf` | 0600 | DNS provider credentials for wildcard certificates (section 14.3) |
 
-## 14. Command Reference
+Every file that holds a credential is created at mode 0600 with owner root:root and is re-checked before it is read.
+
+### 23.4 State Layout
+
+| Path | Content |
+| --- | --- |
+| `${STATE_DIR}/nodes/` | One node record per node, mode 0600 (section 13.1) |
+| `${STATE_DIR}/panels/<panel>/ssl/<target>/` | Certificate and key for one registered name |
+| `${STATE_DIR}/panels/<panel>/templates/` | Templates staged for a panel that serves them from its own database |
+| `${STATE_DIR}/templates-backup/` | Previous template copies, so a removal or replacement is reversible |
+| `${STATE_DIR}/backups/` | Backup archives and the delivery ledger |
+| `${STATE_DIR}/reports/` | Report exports: a mode 0750 directory with mode 0600 files |
+| `${STATE_DIR}/alerts/` | One cooldown file per alert |
+| `${STATE_DIR}/telegram-bot.offset` | Last processed Telegram update, so a restart does not repeat a command |
+| `${STATE_DIR}/tools/<tool>/` | Records BaToHub keeps for a tool, such as the detected install path |
+
+The update never writes outside `${INSTALL_DIR}`, `${CONFIG_DIR}`, `${STATE_DIR}` and `${LOG_DIR}`, and never touches a path named in `USER_MANAGED_PATHS`.
+
+### 23.5 Environment Variables
+
+`INSTALL_DIR`, `CONFIG_DIR`, `STATE_DIR`, `LOG_DIR`, `BACKUP_DIR`, `BACKUP_KEEP`, `GLOBAL_CMD_NAME`, `GITHUB_REPO`, `GITHUB_BRANCH`, `INTEGRITY_HARD_FAIL`, `REPORT_KEEP`, `API_TIMEOUT`, `TELEGRAM_MAX_UPLOAD_BYTES`, `BATOHUB_ADMIN` and the `NODES_*` keys override the configuration files when set. The installer additionally reads `BATOHUB_RELEASE_TAG`, `BATOHUB_SOURCE_DIR` and `BATOHUB_ALLOW_UNVERIFIED_FALLBACK` (section 3.3). `SSL_ACME_BIN`, `FOXIMA_REPO_URL`, `FOXIMA_INSTALLER_URL`, `FOXIMA_PROJECT_DIR`, `FOXIMA_MANAGEMENT_CMD` and the per-panel `*_SCRIPT_URL` / `*_INSTALLER_URL` variables override the upstream sources and paths, which is useful for mirrors and relocated installations.
+
+## 24. Command Reference
 
 | Command | Description |
 | --- | --- |
@@ -518,6 +1099,17 @@ Keep private keys, passwords and tokens out of reports.
 | `BaToHub --rebuild-integrity` | Rebuild the integrity manifest and verify it |
 | `BaToHub --validate` | Validate every panel and tool interface |
 | `BaToHub --uninstall` | Remove BaToHub and keep panels and their data |
+| `BaToHub --nodes CMD` | Node management: `list`, `panels`, `panel-list`, `show`, `restart`, `logs`, `bundle`, `add`, `remove` (section 13.4) |
+| `BaToHub --ssl CMD` | Certificate names: `list`, `register`, `unregister`, `issue`, `renew`, `status`, `revoke` (section 14.4) |
+| `BaToHub --backup-deliver CMD` | Telegram delivery: `status`, `test`, `send`, `ledger` (section 15.4) |
+| `BaToHub --migration CMD` | Migration: `pairs`, `preview`, `run` (section 16.4) |
+| `BaToHub --server CMD` | Server tools: `firewall`, `fail2ban`, `bbr`, `limits`, `time` (section 17.6) |
+| `BaToHub --container CMD` | Containers: `list`, `mode`, `status`, `logs`, `restart`, `stats`, `update` (section 18.4) |
+| `BaToHub --alerts CMD` | Alerts: `status`, `types`, `check`, `run`, `enable`, `disable`, `threshold`, `schedule`, `unschedule` (section 19.6) |
+| `BaToHub admin CMD` | Accounts: `list`, `status`, `permissions`, `roles`, `add`, `remove`, `passwd`, `role`, `check` (section 20.5) |
+| `BaToHub --reports CMD` | Reports: `list`, `show`, `export`, `exports`, `rotate` (section 21.4) |
+| `BaToHub --bot CMD` | Telegram bot: `status`, `service`, `remove-service`, `logs`, `once`, `users`, `check` (section 22.5) |
+| `BaToHub --alerts-run` | The scheduled entry point for the alert timer |
 
 Panel commands accepted by `--panel NAME CMD`:
 
@@ -554,7 +1146,7 @@ Tool commands accepted by `--tool NAME CMD`:
 | `update` | Run the tool's official updater |
 | `uninstall` | Remove the changes BaToHub manages for that tool only |
 
-## 15. FAQ
+## 25. FAQ
 
 **Does BaToHub remove or reset my panel when I switch panels?**
 No. Switching rewrites one key in `panel.conf`. The previous panel keeps running untouched.
@@ -566,7 +1158,7 @@ No. The uninstaller removes `/opt/batohub`, `/etc/batohub`, `/var/lib/batohub`, 
 The downloaded release asset did not match its published SHA-256. Nothing was extracted and nothing was changed. Check network integrity and re-run.
 
 **Can I install a specific version of BaToHub?**
-Yes. Set `BATOHUB_RELEASE_TAG=v0.0.4` before running the installer (section 3.3).
+Yes. Set `BATOHUB_RELEASE_TAG=v0.0.5` before running the installer (section 3.3).
 
 **Can I install a specific version of a panel?**
 Yes, through the panel's own installer. `Panel version` in the menu, or `BaToHub --panel NAME versions` followed by `BaToHub --panel NAME install-version <tag>`, lists the releases the panel publishes and installs the chosen one (section 5.7). VPN-UI is the exception: its deployment script accepts no version.
@@ -582,3 +1174,18 @@ Only when a signing key is configured in the release pipeline. Otherwise the rel
 
 **How do I add a panel or a tool?**
 Create a module directory under `panels/` or `tools/` following the layout in sections 5 and 6.2, then run `BaToHub --validate`.
+
+**Does BaToHub need access to the panel API?**
+Only for the operations that use it: node registration and deregistration, migration, the reports that read accounts, and the alert that compares a panel version with the published one. The endpoint and the credential are declared in `/etc/batohub/nodes.conf`, and a panel that is not configured for API access has those operations unavailable.
+
+**Does BaToHub install an agent on a remote node?**
+No. It registers the node through the panel API and prints the installer command of the panel itself. The remote machine is prepared with the panel's own installer, and BaToHub writes nothing there.
+
+**Are alerts delivered by default?**
+No. No alert is enabled when the configuration file is created, and an alert with no entry in the file is off. Enable the alerts you want, set their thresholds, then schedule the timer.
+
+**Can a Telegram user other than the listed ones use the bot?**
+No. A user id that is not listed is refused, the refusal is recorded, and nothing is sent back to that chat. A listed user runs with the permissions of the BaToHub account that user id is mapped to, and the same permission gate that the menu uses applies.
+
+**Which version does a panel installation use?**
+The newest stable release is the default, and the other releases the panel's own repository publishes are offered before the installation runs. The panel's official installer performs the installation with the version argument of the release that was chosen.

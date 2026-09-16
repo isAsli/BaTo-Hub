@@ -29,8 +29,9 @@ CONTACT_DOC_FILES = (
 
 # A handle is an at sign followed by a name at a word boundary, so an email
 # address (name@host) and a GitHub action reference (actions/checkout@v4) are
-# not handles.
-HANDLE_PATTERN = re.compile(r"(?<![A-Za-z0-9._%+-])@[A-Za-z_][A-Za-z0-9_]{2,}")
+# not handles. The JSON body builders use an at sign followed by a value type
+# and a colon (@int:5, @json:{...}), so a following colon is not a handle.
+HANDLE_PATTERN = re.compile(r"(?<![A-Za-z0-9._%+-])@[A-Za-z_][A-Za-z0-9_]{2,}(?![A-Za-z0-9_:])")
 
 # CSS at-rules look like handles and are not contact information.
 CSS_AT_RULES = frozenset({
@@ -48,7 +49,23 @@ CSS_AT_RULES = frozenset({
     "scope",
 })
 
-FORBIDDEN_IDENTIFIERS = ("t.me/", "telegram")
+# Profile links to messaging and social platforms. An identifier is a profile
+# link, not a platform name: the Telegram management bot is part of the product,
+# so the name of the platform appears in the code and in the documentation.
+FORBIDDEN_IDENTIFIERS = (
+    "t.me/",
+    "telegram.me/",
+    "tg://",
+    "wa.me/",
+    "discord.gg/",
+    "instagram.com/",
+    "facebook.com/",
+    "twitter.com/",
+    "x.com/",
+    "tiktok.com/",
+    "youtube.com/@",
+    "linkedin.com/in/",
+)
 
 # Files that legitimately contain the patterns they look for.
 SKIP_NAMES = (
