@@ -16,6 +16,10 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
+        with:
+          # The repository checks read the whole history, so a shallow clone
+          # would verify only the tip commit.
+          fetch-depth: 0
 
       - name: Install build and analysis tools
         run: |
@@ -118,10 +122,43 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
       - name: Download the built release archive
         uses: actions/download-artifact@v4
         with:
           name: release-archive
+
+      # The asset list and the release body are resolved from the files that
+      # were actually produced, so a signature is never advertised when none was
+      # made and an absent asset cannot be listed.
+      - name: Assemble the release assets
+        id: assets
+        run: |
+          version="${{ needs.release.outputs.version }}"
+          mkdir -p release-assets
+          cp "BaToHub-${version}.zip" "BaToHub-${version}.zip.sha256" manifest.json release-assets/
+          signed=no
+          if [ -f manifest.json.asc ]; then
+            signed=yes
+            cp manifest.json.asc release-assets/
+          fi
+          bash scripts/release-body.sh --signed "$signed" > release-body.md
+          files="release-assets/BaToHub-${version}.zip
+          release-assets/BaToHub-${version}.zip.sha256
+          release-assets/manifest.json"
+          if [ "$signed" = "yes" ]; then
+            files="${files}
+          release-assets/manifest.json.asc"
+          fi
+          {
+            echo "files<<EOF"
+            printf '%s\n' "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "signing=${signed}" >> "$GITHUB_OUTPUT"
+          cat release-body.md
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
@@ -129,62 +166,11 @@ jobs:
           # The installer and the self-update resolve the newest published
           # release through the GitHub API, which ignores pre-releases, so a
           # tagged release is published as a normal release and marked latest.
-          # The body below is written for the release being published.
-          body: |
-            BaToHub ${{ needs.release.outputs.version }}
-
-            Assets
-
-            - BaToHub-${{ needs.release.outputs.version }}.zip: the complete release tree.
-            - BaToHub-${{ needs.release.outputs.version }}.zip.sha256: the SHA-256 of the archive.
-            - manifest.json: the version, the panel and tool list, and a SHA-256 for every file of the archive.
-            - manifest.json.asc: the detached signature of manifest.json, published only when a signing key is configured.
-
-            What is in this release
-
-            - Five panel modules: Rebecca, Marzban, PasarGuard, 3X-UI (Sanaei) and VPN-UI. Each one declares its own metadata, install path, service name, SSL method, template method and update method, and implements the full panel interface.
-            - One tool module: Foxima.
-            - Panel-first architecture with a single loader. Panels are discovered from the filesystem; adding a directory is enough for BaToHub to see a new panel.
-            - A non-interactive command interface: BaToHub --panel NAME CMD, with detect, version, status, install, uninstall, ssl-issue, ssl-renew, ssl-status, template-apply, template-remove, update and logs.
-            - One shared subscription template at templates/subscription/index.html with an optional per-panel override.
-            - Per-panel certificates issued and renewed with acme.sh under BaToHub state storage, with bare-address support where a panel declares it.
-            - Backup, restore and import with a checksummed archive and a member allowlist, transactional restore and a safety backup.
-            - Self-update from a pinned release with SHA-256 verification, protected paths, an installation snapshot and rollback.
-            - An integrity manifest with a SHA-256 entry for every shipped file.
-            - No licensing layer, no telemetry, and no outbound call other than the downloads the operator requests.
-
-            Release 0.0.2 is marked as a pre-release: it shipped PasarGuard and 3X-UI as interface scaffolds without complete SSL, template, update and menu workflows, and installation into a clean distribution userland had not been performed.
-
-            Verification performed before publication
-
-            - scripts/checks.sh: shell syntax, shellcheck, shfmt formatting, JSON metadata, panel and tool interfaces, version consistency, the release manifest and text hygiene.
-            - scripts/build-release.sh --verify-archive: every archive member against manifest.json, and the archive against its SHA-256 sidecar.
-            - scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, templates, backup, restore, panel selection and uninstall.
-            - scripts/container-verify.sh ubuntu:22.04 and debian:12: installation into a clean distribution userland, followed by the documented commands, tamper detection and uninstall. The logs are attached to this workflow run as build artifacts.
-
-            Installation
-
-            ```
-            bash <(curl -fsSL https://raw.githubusercontent.com/isAsli/BaTo-Hub/main/install.sh)
-            ```
-
-            The installer downloads this release asset, verifies its SHA-256 before anything is extracted, and installs from that pinned source.
-
-            Documentation
-
-            DOCS.md, README.md and SECURITY.md. The Persian documentation is in README.fa.md and DOCS.fa.md.
-
-            Known limitations
-
-            The archive is signed only when a signing key is configured; otherwise it carries SHA-256 checksums and no signature is claimed. The panel installers that BaToHub downloads are executed as supplied by their authors and are not reviewed by this project. See SECURITY.md for the full security model.
+          body_path: release-body.md
           prerelease: false
           make_latest: true
-          files: |
-            BaToHub-*.zip
-            BaToHub-*.zip.sha256
-            manifest.json
-            manifest.json.asc
-          fail_on_unmatched_files: false
+          files: ${{ steps.assets.outputs.files }}
+          fail_on_unmatched_files: true
           generate_release_notes: false
 
   # Publication is followed by an installation from the published assets in a

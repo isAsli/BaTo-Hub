@@ -95,6 +95,7 @@ expect_output "--validate reports every panel" "interface ok" "$COMMAND" --valid
 check "--check verifies the manifest" "$COMMAND" --check
 expect_output "--tools lists Foxima" "foxima" "$COMMAND" --tools
 expect_output "--help documents --panel" "--panel NAME CMD" "$COMMAND" --help
+expect_output "--help documents --tool" "--tool NAME CMD" "$COMMAND" --help
 
 step "panel interface"
 for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
@@ -137,6 +138,69 @@ for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
     printf '     actual output: %s\n' "$output" >&2
   fi
 done
+
+step "panel version selection"
+# The version list comes from the panel's own repository over the network, so
+# either a list or a clear error is a valid answer. A version string that is not
+# a version must never be accepted.
+for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
+  output="$("$COMMAND" --panel "$panel" versions 2>&1 || true)"
+  case "$output" in
+  v* | *"could not be listed"* | *"No published"* | *"No source repository"*)
+    ok "panel ${panel} versions lists releases or reports why it cannot"
+    ;;
+  *)
+    no "panel ${panel} versions lists releases or reports why it cannot"
+    printf '     actual output: %s\n' "$output" >&2
+    ;;
+  esac
+done
+expect_output "an unexpected version string is refused" "Refusing an unexpected version string" \
+  "$COMMAND" --panel rebecca install-version 'v1.0.0; touch /tmp/batohub-should-not-exist'
+check "the refused version string changed nothing" test ! -e /tmp/batohub-should-not-exist
+# VC-UI's official deployment script resolves the newest release itself, so a
+# pinned install must be refused with a message that says why. The requested
+# string is a prerelease, which can never equal the newest stable release.
+expect_output "VPN-UI refuses a version it cannot be pinned to" "does not support version pinning" \
+  "$COMMAND" --panel vpn-ui install-version v0.0.1-beta12
+
+step "tool interface"
+output="$("$COMMAND" --tool foxima detect 2>&1 || true)"
+case "$output" in
+not_installed | installed) ok "--tool foxima detect reports a state" ;;
+*) no "--tool foxima detect reports a state (got: ${output})" ;;
+esac
+output="$("$COMMAND" --tool foxima status 2>&1 || true)"
+case "$output" in
+not_installed | stopped | running) ok "--tool foxima status reports a state" ;;
+*) no "--tool foxima status reports a state (got: ${output})" ;;
+esac
+output="$("$COMMAND" --tool foxima version 2>&1 || true)"
+if [[ -n "$output" ]]; then
+  ok "--tool foxima version prints a version (${output})"
+else
+  no "--tool foxima version prints a version"
+fi
+# Foxima is not installed in this environment, so the configuration view and the
+# removal entry must both report that they changed nothing.
+output="$("$COMMAND" --tool foxima configure 2>&1 || true)"
+case "$output" in
+*"is not installed"* | *"Project directory"*) ok "--tool foxima configure reports the configuration state" ;;
+*) no "--tool foxima configure reports the configuration state (got: ${output})" ;;
+esac
+output="$("$COMMAND" --tool foxima uninstall 2>&1 || true)"
+case "$output" in
+*"does not remove Foxima"*) ok "--tool foxima uninstall keeps the installation" ;;
+*) no "--tool foxima uninstall keeps the installation (got: ${output})" ;;
+esac
+output="$("$COMMAND" --tool foxima logs 2>&1 || true)"
+case "$output" in
+*"No log source"* | *log*) ok "--tool foxima logs reports a log source or says there is none" ;;
+*) no "--tool foxima logs reports a log source (got: ${output})" ;;
+esac
+expect_output "an unexpected tool version string is refused" "Refusing an unexpected version string" \
+  "$COMMAND" --tool foxima install-version 'v1.0.0; touch /tmp/batohub-tool-should-not-exist'
+check "the refused tool version string changed nothing" test ! -e /tmp/batohub-tool-should-not-exist
 
 step "backup and restore"
 expect_output "--backup creates an archive" ".tar.gz" "$COMMAND" --backup
