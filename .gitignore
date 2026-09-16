@@ -1,0 +1,9 @@
+# Release build outputs. scripts/build-release.sh produces them from the files
+# git tracks, so they are never committed and never shipped.
+BaToHub-*.zip
+BaToHub-*.zip.sha256
+manifest.json.asc
+
+# Python bytecode caches produced by running the checks.
+__pycache__/
+*.pyc

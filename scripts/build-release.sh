@@ -16,7 +16,8 @@ set -Eeuo pipefail
 #                           sidecar, and sign manifest.json when a signing key
 #                           is available.
 #
-# A release contains exactly the files that git tracks: an untracked or
+# A release contains exactly the files that git tracks, minus the files that
+# exist for the repository itself (.github/, .gitignore): an untracked or
 # unreviewed file in the working tree can never reach a release, and the build
 # refuses to run from a tree with uncommitted changes unless --allow-dirty is
 # passed. manifest.json is published as its own release asset and is not a
@@ -96,9 +97,10 @@ cleanup() { rm -f -- "$file_list"; }
 trap cleanup EXIT
 
 # The files a release consists of, in a stable order. Repository-only content
-# (.github), the manifest itself and previous build outputs are not shipped.
+# (.github, .gitignore), the manifest itself and previous build outputs are not
+# shipped.
 shipped_files() {
-  git ls-files -- . | grep -v -E '^(\.github/|manifest\.json$|BaToHub-.*\.zip)' || true
+  git ls-files -- . | grep -v -E '^(\.github/|\.gitignore$|manifest\.json$|BaToHub-.*\.zip)' || true
 }
 
 shipped_files >"$file_list"
