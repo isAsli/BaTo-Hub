@@ -364,7 +364,9 @@ else
 fi
 
 step "server tools"
-expect_output "the firewall state is reported" "ufw" hub --server firewall status
+# The state is reported from the firewall itself when it is installed and the
+# absence is reported when it is not, so the assertion accepts either form.
+check "the firewall state is reported" bash -c "'$COMMAND' --server firewall status 2>&1 | grep -qE 'Status: (active|inactive)|ufw is not installed'"
 expect_output "the bbr state is reported" "tcp_congestion_control" hub --server bbr status
 expect_output "the limits are reported" "ulimit" hub --server limits show
 expect_output "the time state is reported" "Current time" hub --server time status

@@ -135,7 +135,7 @@
     "scripts/checks_text.py": "2d194ed193c833d74d049e11c7cbb1e146a1e82a7fbbbd07748ab907685cb8b2",
     "scripts/container-verify.sh": "34ec469c979dc8f542ec853bb9ec27ef0cd551438cc536d60b8771015021efb9",
     "scripts/integration-stub.py": "e5188a54472f8738912f16611ee92d4e305544d95d8c23d99b00146598e6efac",
-    "scripts/integration-test.sh": "59b77bbd9aac54f5d8f812a35fc7b7445994cb2c0417a573c73614c139a4656f",
+    "scripts/integration-test.sh": "1174f585c30eff55851b0cd50905a13fd035643130fc8d921830d4b9b658becb",
     "scripts/release-body.sh": "01176e799568dbc101a77fc2fc8c2bc968f839506235bde559685965cbb7193e",
     "scripts/verify-install.sh": "33317a2de26bfb0a2bddb6d9cef16482f1818a70acf00ae65d5530fca32c8fb1",
     "security/integrity.sh": "f892d5365153f27228e2503b0852d9ddadd7f97311246f96ad6058c4b91b7936",
