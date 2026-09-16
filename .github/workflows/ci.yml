@@ -35,11 +35,15 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
+      # Both suites install BaToHub into a disposable prefix. The installer
+      # requires root by design, because it creates directories owned by
+      # root:root and a global command link, so the suites are run the same way
+      # an operator runs them.
       - name: Install verification in a disposable prefix
-        run: bash scripts/verify-install.sh | tee verify-install.log
+        run: sudo bash scripts/verify-install.sh | tee verify-install.log
 
       - name: Drive the documented commands against local service doubles
-        run: bash scripts/integration-test.sh | tee integration-test.log
+        run: sudo bash scripts/integration-test.sh | tee integration-test.log
 
       - name: Upload the verification logs
         uses: actions/upload-artifact@v4

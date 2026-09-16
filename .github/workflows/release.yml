@@ -34,11 +34,13 @@ jobs:
 
       # The functional suites run before anything is built, so a release cannot
       # be published from a tree that fails them.
+      # The installer requires root by design, so the suites run as an operator
+      # would run them.
       - name: Install into a disposable prefix and drive the documented commands
-        run: bash scripts/verify-install.sh
+        run: sudo bash scripts/verify-install.sh
 
       - name: Drive the documented commands against local service doubles
-        run: bash scripts/integration-test.sh
+        run: sudo bash scripts/integration-test.sh
 
       - name: Import the signing key when one is configured
         id: signing
