@@ -231,10 +231,12 @@ backup_meta_is_valid() {
       # Every declared path must itself be relative, free of traversal, and
       # below a destination root. The value is a comma separated list.
       local entry
+      # The list is terminated with a newline: without it the loop would end
+      # before its body ran and no declared path would ever be checked.
       while IFS= read -r entry; do
         [[ -n "$entry" ]] || continue
         backup_member_is_allowed "$entry" || return 1
-      done < <(printf '%s' "$value" | tr ',' '\n')
+      done < <(printf '%s\n' "$value" | tr ',' '\n')
       [[ -n "$value" ]] || return 1
       paths="$value"
       ;;
@@ -242,6 +244,22 @@ backup_meta_is_valid() {
     esac
   done <<<"$meta"
   [[ "$saw_format" -eq 1 && -n "$paths" ]]
+}
+
+# Link members are read from the archive structure rather than from the verbose
+# tar listing, whose column padding differs between tar builds and would let a
+# misread listing skip the check below. Symbolic and hard links are reported one
+# per line as "path<TAB>target".
+backup_archive_links() {
+  python3 - "$1" <<'PY'
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "r:*") as handle:
+    for member in handle.getmembers():
+        if member.issym() or member.islnk():
+            sys.stdout.write(f"{member.name}\t{member.linkname}\n")
+PY
 }
 
 backup_validate_archive() {
@@ -278,10 +296,16 @@ backup_validate_archive() {
       return 1
     fi
   done < <(tar -tzf "$archive")
-  # Pass 2: symlink members are resolved from the extraction listing; a link
-  # that points outside the destination roots would redirect the restore. The
-  # listing is parsed positionally so a target is never confused with a path.
-  while IFS='|' read -r link_path link_target; do
+  # Pass 2: a link that points outside the destination roots would redirect the
+  # restore, so both the link location and its target are checked. The listing
+  # must be readable, otherwise the check cannot run and the restore is refused
+  # rather than continuing unverified.
+  local links
+  links="$(backup_archive_links "$archive")" || {
+    err "The link members of the backup could not be read; refusing to restore."
+    return 1
+  }
+  while IFS=$'\t' read -r link_path link_target; do
     [[ -n "${link_path:-}" ]] || continue
     link_path="${link_path%/}"
     [[ "$(basename "$link_path")" == "$BACKUP_META_NAME" ]] && continue
@@ -295,8 +319,7 @@ backup_validate_archive() {
       return 1
       ;;
     esac
-  done < <(tar -tvzf "$archive" 2>/dev/null |
-    sed -n 's/^[^ ][^ ]* [^ ][^ ]* [^ ][^ ]* [^ ][^ ]* [^ ][^ ]* \(.*\) -> \(.*\)$/\1|\2/p')
+  done <<<"$links"
   ok "Backup contents validated against its metadata and the destination roots."
 }
 
