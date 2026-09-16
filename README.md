@@ -36,6 +36,8 @@ Panel management:
 
 - Detection of installed panels through paths, systemd units and listening ports.
 - Install and update through each panel's official installer or updater.
+- Version detection and selection. Each panel lists the releases published by its own repository and installs the release you choose through that panel's official installer. The newest stable release is the default, a development channel is offered where the installer declares one, and a panel whose installer always installs the newest release is reported as not supporting version pinning.
+- The installed version is read back after the operation and the version change is recorded with a timestamp under `/var/log/batohub/`.
 - Per-panel menus with state indicators, and a non-interactive command interface for automation.
 
 SSL:
@@ -65,7 +67,7 @@ Security:
 
 - Integrity manifest with a SHA-256 entry for every shipped file, verified on demand and after every update.
 - Strict file and directory permissions; private keys are never printed.
-- No licensing server, no telemetry, no outbound call except the downloads the operator requests.
+- No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
 
 ## Supported Panels
 
@@ -81,7 +83,7 @@ Security:
 
 | Name | Description | Requirements | Notes |
 | --- | --- | --- | --- |
-| Foxima | PHP management interface for panel families | PHP, MariaDB, curl | Runs the official installer; removal limited to installations BaToHub recorded |
+| Foxima | PHP management interface for panel families | Docker, curl, wget, unzip | Drives the official installer, which deploys a Docker Compose stack and owns its configuration; BaToHub never writes the Foxima configuration and never removes the stack, its volumes or its data |
 
 ## Requirements
 

@@ -45,7 +45,7 @@ BaToHub is a server management hub written in Bash. It runs on a Linux server as
 
 | Name | Description | Requirements | Notes |
 | --- | --- | --- | --- |
-| Foxima | PHP management interface for panel families | PHP, MariaDB, curl | Runs the official installer; removal limited to installations BaToHub recorded |
+| Foxima | PHP management interface for panel families | Docker, curl, wget, unzip | Drives the official installer, which deploys a Docker Compose stack and owns its configuration; BaToHub never writes the Foxima configuration and never removes the stack, its volumes or its data |
 
 ## 2. Requirements
 
@@ -74,6 +74,7 @@ BaToHub itself needs less than 20 MB in `/opt/batohub` and a few MB in `/var/lib
 ### 2.4 Network
 
 - Outbound HTTPS to `github.com` and `api.github.com` for installation and self-update.
+- Outbound HTTPS to `api.github.com` when a version list is requested. The list is the release list of that panel's or tool's own repository, so it reflects what its authors published and is subject to that API's rate limits.
 - Outbound HTTPS to the ACME API when a certificate is issued.
 - Outbound HTTPS to a public IP lookup service for the status view.
 - Inbound TCP 80 during HTTP-01 certificate validation, and the panel's own ports.
@@ -107,7 +108,7 @@ When run from a checkout, the installer installs from that tree and does not dow
 The installer reads these environment variables and takes no interactive input at any point:
 
 ```bash
-sudo BATOHUB_RELEASE_TAG=v0.0.3 INSTALL_DIR=/opt/batohub CONFIG_DIR=/etc/batohub \
+sudo BATOHUB_RELEASE_TAG=v0.0.4 INSTALL_DIR=/opt/batohub CONFIG_DIR=/etc/batohub \
   GLOBAL_CMD_NAME=/usr/local/bin/BaToHub bash install.sh
 ```
 
@@ -115,6 +116,7 @@ sudo BATOHUB_RELEASE_TAG=v0.0.3 INSTALL_DIR=/opt/batohub CONFIG_DIR=/etc/batohub
 | --- | --- | --- |
 | `BATOHUB_RELEASE_TAG` | newest published release | The release tag to install |
 | `BATOHUB_SOURCE_DIR` | unset | Install from this tree instead of downloading |
+| `BATOHUB_ALLOW_UNVERIFIED_FALLBACK` | `0` | `1` allows the tagged source archive, which has no published checksum, to be used when no release asset is available |
 | `INSTALL_DIR` | `/opt/batohub` | Program directory |
 | `CONFIG_DIR` | `/etc/batohub` | Configuration directory |
 | `STATE_DIR` | `/var/lib/batohub` | State directory |
@@ -147,7 +149,7 @@ sudo BATOHUB_RELEASE_TAG=v0.0.3 INSTALL_DIR=/opt/batohub CONFIG_DIR=/etc/batohub
 
 /etc/batohub/              configuration and integrity manifest
 /var/lib/batohub/          state, locks, certificates, tools, backups
-/var/log/batohub/          batohub.log, install.log, update.log
+/var/log/batohub/          batohub.log, install.log, update.log, versions.log
 /usr/local/bin/BaToHub     symlink to /opt/batohub/bin/batohub
 ```
 
@@ -179,7 +181,7 @@ A panel outside the supported list is reported as not compatible. BaToHub does n
 
 ## 5. Panel Management
 
-Every panel module exposes the same interface, so each panel supports the same operations: detect, version, status, install, uninstall, SSL issue/renew/status/remove, template apply/remove/status, update, logs, and a menu.
+Every panel module exposes the same interface, so each panel supports the same operations: detect, version, available versions, install, install a chosen version, uninstall, SSL issue/renew/status/remove, template apply/remove/status, update, logs, and a menu.
 
 ### 5.1 Rebecca
 
@@ -208,7 +210,8 @@ VPN-UI descends from the same code base as 3X-UI but is a separate installation 
 | SSL management | Issue, renew, inspect, or remove certificates for this panel |
 | Subscription template | Apply, inspect, or remove the BaToHub template for this panel |
 | Panel status | State, version, service unit, install path, port |
-| Panel update | Runs the panel's official updater |
+| Panel version | The installed version, the versions published by the panel's own repository, and the installation of a chosen version |
+| Panel update | Offers the newest release and, where the installer supports it, a chosen version; runs the panel's official updater |
 | Panel logs | Prints the panel log tail |
 | Server information | Host summary, resources, network, services, BaToHub log |
 | Tools | The tools menu (Foxima) |
@@ -218,21 +221,57 @@ VPN-UI descends from the same code base as 3X-UI but is a separate installation 
 | Integrity check | Verify or rebuild the manifest, validate interfaces |
 | Uninstall BaToHub | Removes BaToHub, keeps panels and their data |
 
+### 5.7 Panel Version Detection and Selection
+
+BaToHub reads the versions a panel offers from the release list of that panel's own repository. Nothing is hard-coded, so a release published by the panel's authors is selectable without changing BaToHub.
+
+When a version is selected, BaToHub:
+
+1. Reads the version that is installed now, and prints it before the operation.
+2. Lists the newest stable releases from the panel's repository, marks the newest one as the default, and offers the development channel when the panel's installer declares one.
+3. Runs the panel's own official installer with the version argument that installer documents. BaToHub does not reimplement the installation and passes no credentials to it.
+4. Reads the installed version back and compares it with the requested one. A difference in formatting is reported instead of being accepted silently.
+5. Records the change with a timestamp in `/var/log/batohub/versions.log` and in the main log. Only versions and outcomes are recorded.
+
+| Panel | Version argument of the official installer | Scope | Development channel |
+| --- | --- | --- | --- |
+| Rebecca | `install --version <tag>`, and `update --version <tag>` on an installed panel | Install and update | `--dev` |
+| Marzban | `install --version <tag>` | Install | `--dev` |
+| PasarGuard | `install --version <tag>` | Install | `--dev`, `--pre-release` |
+| 3X-UI | The release tag as the first positional argument | Install | `dev` |
+| VPN-UI | None | Not supported | None |
+
+VPN-UI is the exception: its official deployment script resolves the newest release itself and accepts no version argument. BaToHub reports its published versions for information and refuses a pinned install instead of ignoring the request. An already installed panel is moved between versions by the same rule: where the panel's updater accepts a version, that is used; where it does not, the panel's install path is used, and the panel's own data directories are left in place.
+
 ## 6. Tools
 
 ### 6.1 Foxima
 
-Foxima is a PHP management interface that is normally deployed on a hosting stack. The integration:
+Foxima is a PHP management interface that drives several panel families. Its official installer deploys a Docker Compose stack, installs Docker when it is missing, writes the configuration, starts the stack and installs its own management command. The installer decides the project directory itself, so BaToHub detects that directory after the installation and records it rather than choosing one.
 
-1. Checks for a PHP runtime and a database client before anything is downloaded.
-2. Asks for the install directory and refuses system directories.
-3. Downloads the official installer over HTTPS and runs it inside that directory.
-4. Records the installation path in `/var/lib/batohub/tools/foxima/install.path`.
-5. Removes only an installation BaToHub recorded, and keeps a compressed copy of it first.
+Foxima is not a panel. It keeps its own layout, its own configuration and its own management command, and BaToHub assumes none of the panel conventions for it.
+
+What the integration does:
+
+1. Checks the commands the official installer needs: `curl` to fetch the installer, and `wget` and `unzip` to fetch and unpack a release. A missing command is reported before anything is downloaded. Docker is reported when it is absent; the official installer installs it.
+2. Offers the published releases of the Foxima repository and the rolling build, with the newest stable release as the default, and installs the chosen one through the official installer's own version argument (`-v <tag>`, `-beta`).
+3. Records the project directory in `/var/lib/batohub/tools/foxima/install.path` and records the version change in `/var/log/batohub/versions.log`.
+4. Reads the installed version from the Foxima configuration key the installer writes, and falls back to a `version` file in the project directory.
+5. Reports status from the Compose stack, and prints the installer log, the application log directory and the stack log.
+6. Shows where the configuration lives and which setting names it holds, grouped into payment, panel and general settings. Values are never printed, because the file holds database passwords and bot tokens.
+7. Updates through the official management command the installer installs. That command selects the version itself and owns the configuration and the data volumes, so BaToHub does not reimplement it and does not replace the stack.
+
+What the integration does not do:
+
+- It does not write the Foxima configuration. The installer and the installed interface own that file.
+- It does not remove the stack, its Docker volumes, its configuration or its data. The removal entry clears only the record BaToHub wrote, after an explicit confirmation, and names the command that owns the installation.
+- It does not treat Foxima as a panel and does not assume any other project's behaviour for it.
+
+The tool menu entries are: detect the installation, install, update, status, logs, configure, clear the BaToHub record, and support contact. The support contact is read from the shipped documentation at run time, because source files carry no contact handle.
 
 ### 6.2 Adding a New Tool
 
-A tool is a directory under `tools/` with `tool.json` and `module.sh`, plus optional `install/` and `menu/` sub-modules. Required functions: `tool_detect`, `tool_version`, `tool_status`, `tool_install`, `tool_uninstall`, `tool_menu`. The loader discovers the directory automatically; run `BaToHub --validate` after adding one.
+A tool is a directory under `tools/` with `tool.json`, `module.sh`, and the `install/` and `menu/` sub-modules. Required functions: `tool_detect`, `tool_version`, `tool_status`, `tool_install`, `tool_update`, `tool_logs`, `tool_configure`, `tool_uninstall`, `tool_menu`. Optional functions: `tool_available_versions` and `tool_install_version`, for a tool whose installer accepts a version. `tool.json` declares at least `source_repo`, `supports_version_pinning`, `version_pin_scope` and `dev_channel_argument`. The loader discovers the directory automatically; run `BaToHub --validate` after adding one.
 
 ## 7. SSL
 
@@ -347,6 +386,8 @@ When any verification after the file synchronisation fails, the previous tree is
 
 `${CONFIG_DIR}/integrity.sha256` holds a SHA-256 entry for every shipped file. It is written atomically under `flock`, verified on demand, after every update, and at the start of an interactive session. A missing manifest is a hard failure.
 
+A mismatch is reported and logged, and the interface still opens, so the operator keeps control. Set `INTEGRITY_HARD_FAIL="1"` in `/etc/batohub/batohub.conf` to make a mismatch refuse to open the interface instead; `BaToHub --rebuild-integrity` is then the deliberate way to accept the current files.
+
 ### 11.2 File Permissions
 
 - `/etc/batohub`, `/var/lib/batohub`, `/var/log/batohub`: mode 0750, owner root.
@@ -361,11 +402,14 @@ Passwords, tokens and keys are never logged and never appear on command lines. P
 
 Described in section 10.1: pinned release, HTTPS with certificate validation, SHA-256 against the sidecar or the manifest, refusal of unverified downloads.
 
+The tagged source archive of the same tag carries no published checksum, so the fallback to it is refused unless `BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1` is set. Without that setting the operation fails and nothing is replaced.
+
 ### 11.5 What BaToHub Does Not Do
 
 - It does not prevent a root user from modifying files; the manifest detects and reports.
 - It does not review official panel installers before running them.
 - It does not audit acme.sh.
+- It makes no outbound call other than the ones the operator requests: release downloads during install or update, the release list of a panel's own repository when a version list is requested, the ACME API when a certificate is issued, and a public IP lookup for the status view.
 - It has not undergone an independent audit or penetration test.
 
 ### 11.6 Known Limitations
@@ -381,6 +425,7 @@ Listed in [SECURITY.md](SECURITY.md#known-limitations). The short form: the upda
 | `/var/log/batohub/batohub.log` | Operations: actions, outcomes, warnings, errors |
 | `/var/log/batohub/install.log` | Installer steps, downloads, verification results |
 | `/var/log/batohub/update.log` | Self-update steps, verification results, rollback |
+| `/var/log/batohub/versions.log` | Panel and tool version changes with timestamps: component, action, requested, before, after |
 
 ### 12.2 Log Rotation
 
@@ -398,6 +443,9 @@ BaToHub does not rotate its own logs. Use logrotate with a policy that fits the 
 | A panel is not detected | Compare the path, systemd unit and port with `panel.json` |
 | `SHA-256 verification failed` | The download is not trusted; check network integrity and re-run |
 | `The remote version X is older` | Downgrades are refused; use `--force` only with intent |
+| `does not support version pinning` | That panel's installer always installs the newest release; use the install or update action |
+| `no verifiable release asset is available` | The release asset is missing and the tagged source archive has no checksum; set `BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1` only if you accept an unverified tree |
+| `INTEGRITY_HARD_FAIL is enabled` | `BaToHub --rebuild-integrity` after reviewing what changed |
 
 ### 12.4 How to Report a Bug
 
@@ -419,7 +467,7 @@ Keep private keys, passwords and tokens out of reports.
 | Key | Default | Description |
 | --- | --- | --- |
 | `APP_NAME` | `BaToHub` | Project name shown in the interface |
-| `APP_VERSION` | `0.0.3` | Version, kept in step with the `VERSION` file |
+| `APP_VERSION` | `0.0.4` | Version, kept in step with the `VERSION` file |
 | `INSTALL_DIR` | `/opt/batohub` | Program files |
 | `CONFIG_DIR` | `/etc/batohub` | Configuration and integrity manifest |
 | `STATE_DIR` | `/var/lib/batohub` | Panel state, certificates, backups, locks |
@@ -430,6 +478,7 @@ Keep private keys, passwords and tokens out of reports.
 | `GITHUB_BRANCH` | `main` | Repository branch (metadata only; content comes from release tags) |
 | `GLOBAL_CMD_NAME` | `/usr/local/bin/BaToHub` | Path of the global command |
 | `USER_MANAGED_PATHS` | empty | Space separated paths the update never touches |
+| `INTEGRITY_HARD_FAIL` | `0` | `1` makes a failed integrity check refuse to open the interface |
 
 ### 13.2 panel.conf
 
@@ -445,7 +494,7 @@ Keep private keys, passwords and tokens out of reports.
 
 ### 13.3 Environment Variables
 
-`INSTALL_DIR`, `CONFIG_DIR`, `STATE_DIR`, `LOG_DIR`, `BACKUP_DIR`, `BACKUP_KEEP`, `GLOBAL_CMD_NAME`, `GITHUB_REPO`, `GITHUB_BRANCH` override the configuration file when set. The installer additionally reads `BATOHUB_RELEASE_TAG` and `BATOHUB_SOURCE_DIR` (section 3.3). `SSL_ACME_BIN`, `FOXIMA_REPO_URL`, `FOXIMA_INSTALLER_URL` and the per-panel `*_SCRIPT_URL` / `*_INSTALLER_URL` variables override the upstream sources, which is useful for mirrors.
+`INSTALL_DIR`, `CONFIG_DIR`, `STATE_DIR`, `LOG_DIR`, `BACKUP_DIR`, `BACKUP_KEEP`, `GLOBAL_CMD_NAME`, `GITHUB_REPO`, `GITHUB_BRANCH` and `INTEGRITY_HARD_FAIL` override the configuration file when set. The installer additionally reads `BATOHUB_RELEASE_TAG`, `BATOHUB_SOURCE_DIR` and `BATOHUB_ALLOW_UNVERIFIED_FALLBACK` (section 3.3). `SSL_ACME_BIN`, `FOXIMA_REPO_URL`, `FOXIMA_INSTALLER_URL`, `FOXIMA_PROJECT_DIR`, `FOXIMA_MANAGEMENT_CMD` and the per-panel `*_SCRIPT_URL` / `*_INSTALLER_URL` variables override the upstream sources and paths, which is useful for mirrors and relocated installations.
 
 ## 14. Command Reference
 
@@ -457,6 +506,7 @@ Keep private keys, passwords and tokens out of reports.
 | `BaToHub --version` | Print the version |
 | `BaToHub --list-panels` | List the supported panels with state and version |
 | `BaToHub --tools` | List the supported tools |
+| `BaToHub --tool NAME CMD` | Run one tool command without the menu |
 | `BaToHub --detect` | List the panels detected on this server |
 | `BaToHub --status` | Print the status summary |
 | `BaToHub --select-panel NAME` | Store the panel BaToHub manages |
@@ -484,8 +534,25 @@ Panel commands accepted by `--panel NAME CMD`:
 | `template-apply` | Apply or stage the subscription template |
 | `template-status` | Print the template report for the panel |
 | `template-remove` | Remove the BaToHub-managed template |
+| `versions` | List the versions the panel's own repository publishes |
+| `install-version` | Install the release given as the next argument, through the panel's official installer |
 | `update` | Run the panel's official updater |
 | `logs` | Print the panel log tail |
+
+Tool commands accepted by `--tool NAME CMD`:
+
+| Command | Description |
+| --- | --- |
+| `detect` | Report whether the tool is installed |
+| `version` | Print the installed version |
+| `versions` | List the versions the tool's own repository publishes, when the tool declares them |
+| `status` | Print `running`, `stopped` or `not_installed` |
+| `logs` | Print the log sources of the tool |
+| `configure` | Show where the configuration lives and which settings it holds, without printing values |
+| `install` | Run the tool's official installer |
+| `install-version` | Install the release given as the next argument, through the tool's official installer |
+| `update` | Run the tool's official updater |
+| `uninstall` | Remove the changes BaToHub manages for that tool only |
 
 ## 15. FAQ
 
@@ -498,11 +565,14 @@ No. The uninstaller removes `/opt/batohub`, `/etc/batohub`, `/var/lib/batohub`, 
 **Why does the installer refuse to continue with a checksum error?**
 The downloaded release asset did not match its published SHA-256. Nothing was extracted and nothing was changed. Check network integrity and re-run.
 
-**Can I install a specific version?**
-Yes. Set `BATOHUB_RELEASE_TAG=v0.0.3` before running the installer (section 3.3).
+**Can I install a specific version of BaToHub?**
+Yes. Set `BATOHUB_RELEASE_TAG=v0.0.4` before running the installer (section 3.3).
+
+**Can I install a specific version of a panel?**
+Yes, through the panel's own installer. `Panel version` in the menu, or `BaToHub --panel NAME versions` followed by `BaToHub --panel NAME install-version <tag>`, lists the releases the panel publishes and installs the chosen one (section 5.7). VPN-UI is the exception: its deployment script accepts no version.
 
 **Does BaToHub phone home?**
-No. There is no telemetry and no licensing server. Outbound HTTPS happens only when you install, update, issue a certificate, or open the status view.
+No. There is no telemetry and no licensing server. Outbound HTTPS happens only when you install, update, issue a certificate, request a panel version list, or open the status view.
 
 **Can BaToHub manage more than one panel at a time?**
 One panel is managed at a time. Switching changes the focus without modifying the previous panel.

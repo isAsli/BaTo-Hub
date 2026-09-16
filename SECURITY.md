@@ -4,8 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| 0.0.3 | Yes |
-| < 0.0.3 | No |
+| 0.0.4 | Yes |
+| < 0.0.4 | No |
 
 Security fixes are applied to the latest release on the `main` branch. Older releases are not maintained. Upgrade with `BaToHub --update`.
 
@@ -54,6 +54,8 @@ There is no bug bounty program.
 
 BaToHub records a SHA-256 entry for every file it ships, in `${CONFIG_DIR}/integrity.sha256`, written atomically under a file lock. The check runs on demand (`BaToHub --check`), after every update, and at the start of an interactive session. A missing manifest is a hard failure. The manifest detects changes between a recorded state and the current files and reports them; it does not prevent a change.
 
+A mismatch is reported and the interface still opens, because BaToHub is a management tool and the operator keeps control. Setting `INTEGRITY_HARD_FAIL="1"` in `/etc/batohub/batohub.conf` changes that: a mismatch then refuses to open the interface, and the operator rebuilds the manifest deliberately with `BaToHub --rebuild-integrity`.
+
 ### File Permissions
 
 - Configuration and state files: mode 0600.
@@ -70,6 +72,8 @@ The self-update and the installer download a pinned release, never the `main` br
 3. The asset SHA-256 is verified against the published `.sha256` sidecar. When the sidecar is unavailable, the SHA-256 recorded in `manifest.json` is used instead. When neither is available the download is refused.
 4. Nothing is extracted before verification passes.
 
+When a release asset is unavailable, both the installer and the self-update can fall back to the tagged source archive of the same tag. No checksum is published for that archive, so the fallback is refused unless the operator sets `BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1`; the attempt fails with an error instead of installing an unverified tree.
+
 Protected paths are never overwritten by an update: `/etc/batohub/batohub.conf`, `/etc/batohub/panel.conf`, `/var/lib/batohub`, `/var/log/batohub`, and every path listed in `USER_MANAGED_PATHS`. A snapshot of the installation tree is taken before files are replaced, and the previous tree is restored when post-update verification fails.
 
 ### What BaToHub Does Not Do
@@ -84,7 +88,7 @@ Protected paths are never overwritten by an update: `/etc/batohub/batohub.conf`,
 
 Every release is verified before publication:
 
-- `scripts/checks.sh` passes: shell syntax, shellcheck, shfmt formatting, JSON metadata, panel and tool interfaces, version consistency, the release manifest, documentation presence, and text hygiene.
+- `scripts/checks.sh` passes: shell syntax, shellcheck, shfmt formatting, JSON metadata, the panel and tool interfaces, version consistency, the release manifest, the release body, the git history, documentation presence, and text hygiene. The history check fails the build when any commit message carries a co-author trailer or names a development tool.
 - `scripts/build-release.sh` builds the archive from the files git tracks, so an untracked or unreviewed file cannot reach a release, then verifies every archive member against `manifest.json` and the archive against its `.sha256` sidecar. The release job stops when either check fails.
 - `scripts/verify-install.sh` passes: an isolated install that exercises the documented commands, the panel interface for all five panels, template apply, backup, restore, panel selection, and uninstall.
 - `scripts/container-verify.sh` passes against `ubuntu:22.04` and `debian:12`: installation into a clean distribution userland, followed by the documented commands, tamper detection, and uninstall. The pipeline runs these checks in CI and on every release, and their logs are attached to workflow runs as artifacts named `container-verify-ubuntu-2204` and `container-verify-debian-12`.
@@ -92,6 +96,18 @@ Every release is verified before publication:
 Publication is followed by an installation from the published release assets into a clean Ubuntu 22.04 userland (`BATOHUB_VERIFY_SOURCE=release`). That is the download path the documented one-liner takes, so a defect in it makes the workflow that published the release fail instead of passing unnoticed.
 
 These checks are structural and functional verification of BaToHub itself. They are not a behavioral test of any panel against a live upstream installation.
+
+## Known Residuals
+
+- Before v0.0.4 the git history contained two commits whose messages carried a
+  co-author trailer naming a third-party development tool, and one commit
+  message that referred to that tool. Those commits were ancestors of every tag
+  up to v0.0.3. In v0.0.4 the history was rewritten to remove those lines, and
+  the tags v0.0.1, v0.0.2 and v0.0.3 were moved onto the rewritten history.
+  Commit identifiers recorded before the rewrite, in old clones, mirror caches
+  or third-party references, no longer resolve. No commit, tag message or file
+  in the repository contains such a trailer, and `scripts/checks.sh` fails when
+  one is introduced. This residual is closed.
 
 ## Known Limitations
 
