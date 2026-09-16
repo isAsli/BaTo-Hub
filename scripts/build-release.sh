@@ -4,11 +4,24 @@ set -Eeuo pipefail
 # Release builder.
 #
 # Modes:
-#   --write-manifest   Recompute version, panel, tool and file hashes in
-#                      manifest.json. No archive is created.
-#   (default)          Build the release archive, compute its SHA-256, write the
-#                      archive hash into manifest.json, write a .sha256 sidecar,
-#                      and sign manifest.json when a signing key is available.
+#   --write-manifest        Recompute version, panel, tool and file hashes in
+#                           manifest.json. No archive is created.
+#   --verify-manifest       Compare manifest.json with the working tree. Nothing
+#                           is written; exits non-zero on any difference.
+#   --verify-archive FILE   Compare an archive with manifest.json, member by
+#                           member. Nothing is written.
+#   (default)               Build the release archive, compute its SHA-256,
+#                           record the archive hash and the hash of every
+#                           shipped file in manifest.json, write the .sha256
+#                           sidecar, and sign manifest.json when a signing key
+#                           is available.
+#
+# A release contains exactly the files that git tracks: an untracked or
+# unreviewed file in the working tree can never reach a release, and the build
+# refuses to run from a tree with uncommitted changes unless --allow-dirty is
+# passed. manifest.json is published as its own release asset and is not a
+# member of the archive, so the archive contains exactly the files recorded in
+# the manifest and the two can be compared member by member.
 #
 # Signing is optional. When no key is supplied the archive is published with its
 # SHA-256 checksum, which is documented in SECURITY.md as the verification
@@ -19,15 +32,28 @@ cd "$ROOT"
 
 MANIFEST="manifest.json"
 GPG_KEY_ID="${GPG_KEY_ID:-}"
-WRITE_MANIFEST_ONLY=0
+MODE="build"
+VERIFY_TARGET=""
+ALLOW_DIRTY=0
 
 usage() {
-  printf 'Usage: %s [--write-manifest] [--gpg-key KEY_ID]\n' "$0"
+  printf 'Usage: %s [--write-manifest | --verify-manifest | --verify-archive FILE]\n' "$0"
+  printf '          [--gpg-key KEY_ID] [--allow-dirty]\n'
 }
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-  --write-manifest) WRITE_MANIFEST_ONLY=1 ;;
+  --write-manifest) MODE="write" ;;
+  --verify-manifest) MODE="verify-manifest" ;;
+  --verify-archive)
+    shift
+    VERIFY_TARGET="${1:-}"
+    MODE="verify-archive"
+    [[ -n "$VERIFY_TARGET" ]] || {
+      printf 'ERROR: --verify-archive needs an archive path.\n' >&2
+      exit 2
+    }
+    ;;
   --gpg-key)
     shift
     GPG_KEY_ID="${1:-}"
@@ -36,6 +62,7 @@ while [[ "$#" -gt 0 ]]; do
       exit 2
     }
     ;;
+  --allow-dirty) ALLOW_DIRTY=1 ;;
   -h | --help)
     usage
     exit 0
@@ -55,22 +82,45 @@ release_url="https://github.com/isAsli/BaTo-Hub/releases/tag/v${version}"
 package_url="https://github.com/isAsli/BaTo-Hub/releases/download/v${version}/${package}"
 
 if ! command -v python3 >/dev/null 2>&1; then
-  printf 'ERROR: python3 is required to write the manifest.\n' >&2
+  printf 'ERROR: python3 is required to write and verify the manifest.\n' >&2
+  exit 1
+fi
+
+if ! command -v git >/dev/null 2>&1 || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'ERROR: the file list of a release comes from git; run this script from a checkout.\n' >&2
+  exit 1
+fi
+
+file_list="$(mktemp "${TMPDIR:-/tmp}/batohub.release.XXXXXX")"
+cleanup() { rm -f -- "$file_list"; }
+trap cleanup EXIT
+
+# The files a release consists of, in a stable order. Repository-only content
+# (.github), the manifest itself and previous build outputs are not shipped.
+shipped_files() {
+  git ls-files -- . | grep -v -E '^(\.github/|manifest\.json$|BaToHub-.*\.zip)' || true
+}
+
+shipped_files >"$file_list"
+shipped_count="$(wc -l <"$file_list" | tr -d '[:space:]')"
+if [[ "$shipped_count" -eq 0 ]]; then
+  printf 'ERROR: the shipped file list is empty; this is not a release tree.\n' >&2
   exit 1
 fi
 
 write_manifest() {
   local archive_sha="${1:-}" archive_name="${2:-}"
-  python3 - "$MANIFEST" "$version" "$release_url" "$package_url" "$archive_sha" "$archive_name" <<'PY'
+  python3 - "$MANIFEST" "$version" "$release_url" "$package_url" "$archive_sha" "$archive_name" "$file_list" <<'PY'
 import hashlib
 import json
 import os
 import sys
 
-manifest_path, version, release_url, package_url, archive_sha, archive_name = sys.argv[1:7]
+manifest_path, version, release_url, package_url, archive_sha, archive_name, list_path = sys.argv[1:8]
 
 with open(manifest_path, encoding="utf-8") as handle:
     manifest = json.load(handle)
+
 
 def sha256(path):
     digest = hashlib.sha256()
@@ -78,6 +128,10 @@ def sha256(path):
         for block in iter(lambda: handle.read(65536), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+with open(list_path, encoding="utf-8") as handle:
+    shipped = [line.strip() for line in handle if line.strip()]
 
 manifest["version"] = version
 manifest["app"] = "BaToHub"
@@ -113,20 +167,14 @@ if os.path.isdir("tools"):
         })
 manifest["tools"] = tools
 
-# manifest.json cannot contain its own hash, so it is not part of the map.
-managed = ["VERSION", "install.sh"]
-for base in ("bin", "core", "lib", "panels", "tools", "security", "config", "scripts"):
-    for current, dirs, files in os.walk(base):
-        dirs[:] = sorted(d for d in dirs if d not in {".git", "__pycache__"})
-        for name in sorted(files):
-            managed.append(os.path.join(current, name))
-
-manifest["files"] = {path: sha256(path) for path in sorted(set(managed)) if os.path.isfile(path)}
+# Every shipped file is recorded, so the manifest describes the archive
+# completely. manifest.json cannot record its own hash and is not shipped.
+manifest["files"] = {path: sha256(path) for path in shipped if os.path.isfile(path)}
 
 if archive_sha:
     manifest["sha256"] = archive_sha
     manifest["package_file"] = archive_name
-elif "sha256" in manifest and not archive_name:
+else:
     manifest.pop("sha256", None)
     manifest.pop("package_file", None)
 
@@ -136,11 +184,116 @@ with open(manifest_path, "w", encoding="utf-8") as handle:
 PY
 }
 
-if [[ "$WRITE_MANIFEST_ONLY" -eq 1 ]]; then
+verify_manifest() {
+  python3 - "$MANIFEST" "$file_list" <<'PY'
+import hashlib
+import json
+import sys
+
+manifest_path, list_path = sys.argv[1:3]
+
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+with open(list_path, encoding="utf-8") as handle:
+    shipped = [line.strip() for line in handle if line.strip()]
+
+recorded = manifest.get("files", {})
+problems = []
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(65536), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+for path in shipped:
+    if path not in recorded:
+        problems.append(f"the manifest does not record {path}")
+        continue
+    if digest(path) != recorded[path]:
+        problems.append(f"the manifest hash does not match {path}")
+
+for path in sorted(set(recorded) - set(shipped)):
+    problems.append(f"the manifest records {path}, which is not part of the release")
+
+for item in problems:
+    print(f"FAIL [release manifest] {item}", file=sys.stderr)
+
+if problems:
+    raise SystemExit(1)
+
+print(f"ok   manifest.json covers all {len(shipped)} shipped files")
+PY
+}
+
+verify_archive() {
+  local archive="$1"
+  python3 - "$MANIFEST" "$archive" <<'PY'
+import hashlib
+import json
+import sys
+import zipfile
+
+manifest_path, archive_path = sys.argv[1:3]
+
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+recorded = manifest.get("files", {})
+problems = []
+
+with zipfile.ZipFile(archive_path) as archive:
+    members = [name for name in archive.namelist() if not name.endswith("/")]
+    for name in members:
+        if name not in recorded:
+            problems.append(f"the archive contains {name}, which the manifest does not record")
+            continue
+        if hashlib.sha256(archive.read(name)).hexdigest() != recorded[name]:
+            problems.append(f"the manifest hash does not match the archive member {name}")
+
+for name in sorted(set(recorded) - set(members)):
+    problems.append(f"the manifest records {name}, which the archive does not contain")
+
+value = hashlib.sha256()
+with open(archive_path, "rb") as handle:
+    for block in iter(lambda: handle.read(65536), b""):
+        value.update(block)
+if manifest.get("sha256") and manifest["sha256"] != value.hexdigest():
+    problems.append("the archive hash recorded in the manifest does not match the archive")
+
+for item in problems:
+    print(f"FAIL [release archive] {item}", file=sys.stderr)
+
+if problems:
+    raise SystemExit(1)
+
+print(f"ok   all {len(members)} archive members match manifest.json")
+PY
+}
+
+case "$MODE" in
+verify-manifest)
+  verify_manifest
+  exit $?
+  ;;
+write)
   write_manifest "" ""
-  printf 'manifest.json updated for version %s\n' "$version"
+  printf 'manifest.json updated for version %s (%s shipped files)\n' "$version" "$shipped_count"
   exit 0
-fi
+  ;;
+verify-archive)
+  [[ -f "$VERIFY_TARGET" ]] || {
+    printf 'ERROR: archive not found: %s\n' "$VERIFY_TARGET" >&2
+    exit 1
+  }
+  verify_archive "$VERIFY_TARGET"
+  exit $?
+  ;;
+esac
 
 for command_name in zip sha256sum; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -149,22 +302,28 @@ for command_name in zip sha256sum; do
   fi
 done
 
-printf 'Building %s\n' "$package"
+if [[ "$ALLOW_DIRTY" -ne 1 ]]; then
+  # A release is built from committed files only, so the packaged content is
+  # always reviewable in the repository.
+  if dirty="$(git status --porcelain)" && [[ -n "$dirty" ]]; then
+    printf 'ERROR: the working tree has uncommitted changes:\n' >&2
+    printf '%s\n' "$dirty" >&2
+    printf 'Commit or stash them, or pass --allow-dirty for a test build.\n' >&2
+    exit 1
+  fi
+fi
+
+printf 'Building %s from %s tracked file(s)\n' "$package" "$shipped_count"
 rm -f -- "$package" "${package}.sha256" "${MANIFEST}.asc"
-zip -r -q "$package" . \
-  -x '.git/*' \
-  -x '.github/*' \
-  -x 'node_modules/*' \
-  -x '__pycache__/*' \
-  -x '*.pyc' \
-  -x '*.swp' \
-  -x '.DS_Store'
+
+zip -q -X "$package" -@ <"$file_list"
 
 archive_sha="$(sha256sum "$package" | awk '{print $1}')"
 printf '%s  %s\n' "$archive_sha" "$package" >"${package}.sha256"
 printf 'SHA-256: %s\n' "$archive_sha"
 
 write_manifest "$archive_sha" "$package"
+verify_archive "$package"
 
 signing_status="not performed"
 if [[ -n "$GPG_KEY_ID" ]]; then

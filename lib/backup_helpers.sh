@@ -179,12 +179,80 @@ backup_map_destination() {
   esac
 }
 
+# Destination roots a restore may ever write to. Members outside these
+# prefixes are rejected even if a metadata file claims them, so a crafted
+# archive cannot point the restore at /etc, /root or any other location.
+backup_allowed_prefixes() {
+  printf '%s\n' "${CONFIG_DIR#/}"
+  printf '%s\n' "${STATE_DIR#/}"
+  printf '%s\n' "${LOG_DIR#/}"
+}
+
+# A member is safe when it is relative, carries no parent traversal, and sits
+# below one of the destination roots.
+backup_member_is_allowed() {
+  local member="$1" prefix
+  [[ "$member" == /* ]] && return 1
+  [[ "$member" == *..* ]] && return 1
+  [[ -z "$member" ]] && return 1
+  while IFS= read -r prefix; do
+    [[ -n "$prefix" ]] || continue
+    if [[ "$member" == "$prefix" || "$member" == "$prefix"/* ]]; then
+      return 0
+    fi
+  done < <(backup_allowed_prefixes)
+  return 1
+}
+
+# The metadata file is part of the archive input, so it is validated before any
+# member check trusts it. Only the known keys with sane values are accepted.
+backup_meta_is_valid() {
+  local archive="$1" meta line key value paths=""
+  meta="$(backup_read_meta "$archive")" || return 1
+  [[ -n "$meta" ]] || return 1
+  local saw_format=0
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    case "$line" in
+    *=*) ;;
+    *) return 1 ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+    format)
+      [[ "$value" == "1" ]] || return 1
+      saw_format=1
+      ;;
+    batohub_version | panel | panel_version | timestamp)
+      [[ "$value" =~ ^[A-Za-z0-9._:+-]*$ ]] || return 1
+      ;;
+    paths)
+      # Every declared path must itself be relative, free of traversal, and
+      # below a destination root. The value is a comma separated list.
+      local entry
+      while IFS= read -r entry; do
+        [[ -n "$entry" ]] || continue
+        backup_member_is_allowed "$entry" || return 1
+      done < <(printf '%s' "$value" | tr ',' '\n')
+      [[ -n "$value" ]] || return 1
+      paths="$value"
+      ;;
+    *) return 1 ;;
+    esac
+  done <<<"$meta"
+  [[ "$saw_format" -eq 1 && -n "$paths" ]]
+}
+
 backup_validate_archive() {
-  local archive="$1" member declared_paths candidate matched
-  declared_paths="$(backup_declared_paths "$archive")" || {
-    err "Backup metadata does not declare any path; refusing to restore."
+  local archive="$1" member declared_paths candidate matched target link_target
+  backup_meta_is_valid "$archive" || {
+    err "Backup metadata is missing, malformed, or declares paths outside the BaToHub destination roots; refusing to restore."
     return 1
   }
+  declared_paths="$(backup_declared_paths "$archive")"
+  # Pass 1: member names must be relative, free of parent traversal, below a
+  # destination root, and declared in the metadata.
   while IFS= read -r member; do
     [[ -n "$member" ]] || continue
     # Directory members carry a trailing slash; the metadata stores plain paths.
@@ -193,7 +261,7 @@ backup_validate_archive() {
     if [[ "$member" == "$BACKUP_META_NAME" ]]; then
       continue
     fi
-    if [[ "$member" == /* || "$member" == *..* ]]; then
+    if ! backup_member_is_allowed "$member"; then
       err "Backup contains an unsafe member path: $member"
       return 1
     fi
@@ -210,7 +278,26 @@ backup_validate_archive() {
       return 1
     fi
   done < <(tar -tzf "$archive")
-  ok "Backup contents validated against its metadata."
+  # Pass 2: symlink members are resolved from the extraction listing; a link
+  # that points outside the destination roots would redirect the restore. The
+  # listing is parsed positionally so a target is never confused with a path.
+  while IFS='|' read -r link_path link_target; do
+    [[ -n "${link_path:-}" ]] || continue
+    link_path="${link_path%/}"
+    [[ "$(basename "$link_path")" == "$BACKUP_META_NAME" ]] && continue
+    if ! backup_member_is_allowed "$link_path"; then
+      err "Backup contains a symlink outside the BaToHub destination roots: $link_path"
+      return 1
+    fi
+    case "$link_target" in
+    /* | *..*)
+      err "Backup contains a symlink with an unsafe target: $link_path -> $link_target"
+      return 1
+      ;;
+    esac
+  done < <(tar -tvzf "$archive" 2>/dev/null |
+    sed -n 's/^[^ ][^ ]* [^ ][^ ]* [^ ][^ ]* [^ ][^ ]* [^ ][^ ]* \(.*\) -> \(.*\)$/\1|\2/p')
+  ok "Backup contents validated against its metadata and the destination roots."
 }
 
 backup_restore() {

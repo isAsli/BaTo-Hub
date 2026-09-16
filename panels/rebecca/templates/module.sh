@@ -32,7 +32,7 @@ template_apply() {
   else
     panel_restart_safe "$PANEL_SERVICE" || true
   fi
-  ok "BaTo-Ui is installed for Rebecca."
+  ok "The BaToHub subscription template is installed for Rebecca."
 }
 
 template_status() {

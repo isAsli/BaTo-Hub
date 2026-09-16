@@ -10,11 +10,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      zip_name: ${{ steps.build.outputs.zip_name }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Install build tools
+      - name: Install build and analysis tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq zip shellcheck
@@ -41,17 +44,141 @@ jobs:
           fi
 
       - name: Build the release archive
+        id: build
         run: |
           if [ "${{ steps.signing.outputs.signing }}" = "yes" ]; then
             bash scripts/build-release.sh --gpg-key "${{ steps.signing.outputs.key_id }}"
           else
             bash scripts/build-release.sh
           fi
+          version="$(tr -d '[:space:]' <VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip_name=BaToHub-${version}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the archive against the manifest and the checksum sidecar
+        run: |
+          archive="${{ steps.build.outputs.zip_name }}"
+          bash scripts/build-release.sh --verify-archive "$archive"
+          sha256sum -c "${archive}.sha256"
+          if [ -f manifest.json.asc ]; then
+            gpg --batch --no-tty --verify manifest.json.asc manifest.json
+          fi
+
+      - name: Upload the release archive as a build artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-archive
+          path: |
+            BaToHub-*.zip
+            BaToHub-*.zip.sha256
+            manifest.json
+            manifest.json.asc
+          if-no-files-found: error
+
+  container-verify-ubuntu:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run installation verification in a clean Ubuntu 22.04 userland
+        run: sudo bash scripts/container-verify.sh ubuntu:22.04 | tee container-verify-ubuntu-2204.log
+
+      - name: Upload the verification log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-verify-ubuntu-2204
+          path: container-verify-ubuntu-2204.log
+          if-no-files-found: error
+
+  container-verify-debian:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run installation verification in a clean Debian 12 userland
+        run: sudo bash scripts/container-verify.sh debian:12 | tee container-verify-debian-12.log
+
+      - name: Upload the verification log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-verify-debian-12
+          path: container-verify-debian-12.log
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [release, container-verify-ubuntu, container-verify-debian]
+    permissions:
+      contents: write
+    steps:
+      - name: Download the built release archive
+        uses: actions/download-artifact@v4
+        with:
+          name: release-archive
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: RELEASE_NOTES.md
+          # The installer and the self-update resolve the newest published
+          # release through the GitHub API, which ignores pre-releases, so a
+          # tagged release is published as a normal release and marked latest.
+          # The body below is written for the release being published.
+          body: |
+            BaToHub ${{ needs.release.outputs.version }}
+
+            Assets
+
+            - BaToHub-${{ needs.release.outputs.version }}.zip: the complete release tree.
+            - BaToHub-${{ needs.release.outputs.version }}.zip.sha256: the SHA-256 of the archive.
+            - manifest.json: the version, the panel and tool list, and a SHA-256 for every file of the archive.
+            - manifest.json.asc: the detached signature of manifest.json, published only when a signing key is configured.
+
+            What is in this release
+
+            - Five panel modules: Rebecca, Marzban, PasarGuard, 3X-UI (Sanaei) and VPN-UI. Each one declares its own metadata, install path, service name, SSL method, template method and update method, and implements the full panel interface.
+            - One tool module: Foxima.
+            - Panel-first architecture with a single loader. Panels are discovered from the filesystem; adding a directory is enough for BaToHub to see a new panel.
+            - A non-interactive command interface: BaToHub --panel NAME CMD, with detect, version, status, install, uninstall, ssl-issue, ssl-renew, ssl-status, template-apply, template-remove, update and logs.
+            - One shared subscription template at templates/subscription/index.html with an optional per-panel override.
+            - Per-panel certificates issued and renewed with acme.sh under BaToHub state storage, with bare-address support where a panel declares it.
+            - Backup, restore and import with a checksummed archive and a member allowlist, transactional restore and a safety backup.
+            - Self-update from a pinned release with SHA-256 verification, protected paths, an installation snapshot and rollback.
+            - An integrity manifest with a SHA-256 entry for every shipped file.
+            - No licensing layer, no telemetry, and no outbound call other than the downloads the operator requests.
+
+            Release 0.0.2 is marked as a pre-release: it shipped PasarGuard and 3X-UI as interface scaffolds without complete SSL, template, update and menu workflows, and installation into a clean distribution userland had not been performed.
+
+            Verification performed before publication
+
+            - scripts/checks.sh: shell syntax, shellcheck, shfmt formatting, JSON metadata, panel and tool interfaces, version consistency, the release manifest and text hygiene.
+            - scripts/build-release.sh --verify-archive: every archive member against manifest.json, and the archive against its SHA-256 sidecar.
+            - scripts/verify-install.sh: an isolated installation that exercises the documented commands, the panel interface, templates, backup, restore, panel selection and uninstall.
+            - scripts/container-verify.sh ubuntu:22.04 and debian:12: installation into a clean distribution userland, followed by the documented commands, tamper detection and uninstall. The logs are attached to this workflow run as build artifacts.
+
+            Installation
+
+            ```
+            bash <(curl -fsSL https://raw.githubusercontent.com/isAsli/BaTo-Hub/main/install.sh)
+            ```
+
+            The installer downloads this release asset, verifies its SHA-256 before anything is extracted, and installs from that pinned source.
+
+            Documentation
+
+            DOCS.md, README.md and SECURITY.md. The Persian documentation is in README.fa.md and DOCS.fa.md.
+
+            Known limitations
+
+            The archive is signed only when a signing key is configured; otherwise it carries SHA-256 checksums and no signature is claimed. The panel installers that BaToHub downloads are executed as supplied by their authors and are not reviewed by this project. See SECURITY.md for the full security model.
+          prerelease: false
+          make_latest: true
           files: |
             BaToHub-*.zip
             BaToHub-*.zip.sha256

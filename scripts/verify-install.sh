@@ -11,6 +11,8 @@ set -Eeuo pipefail
 # Usage: bash scripts/verify-install.sh [work-directory]
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Read from VERSION so the checks never carry a version literal of their own.
+RELEASE_VERSION="$(tr -d '[:space:]' <"${ROOT}/VERSION")"
 WORK="${1:-/tmp/batohub-verify}"
 PREFIX="${WORK}/opt"
 ETC_DIR="${WORK}/etc"
@@ -85,7 +87,7 @@ check "state directory mode is 0750" test "$(stat -c '%a' "$STATE")" = "750"
 check "log directory mode is 0750" test "$(stat -c '%a' "$LOGS")" = "750"
 
 step "documented commands"
-expect_output "--version reports the version" "0.0.3" "$COMMAND" --version
+expect_output "--version reports the version" "$RELEASE_VERSION" "$COMMAND" --version
 expect_output "--list-panels lists five panels" "vpn-ui" "$COMMAND" --list-panels
 expect_output "--detect runs on a host without panels" "No supported panel was detected." "$COMMAND" --detect
 expect_output "--status prints an integrity line" "Integrity:" "$COMMAND" --status
@@ -117,7 +119,7 @@ expect_output "panel uninstall leaves the panel in place" "does not remove" \
 for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
   output="$("$COMMAND" --panel "$panel" template-apply 2>&1 || true)"
   case "$output" in
-  *"Staged template"* | *"BaTo-Ui is installed"* | *"configuration file was not found"*)
+  *"Staged template"* | *"subscription template is installed"* | *"configuration file was not found"*)
     ok "panel ${panel} template apply reports what it did"
     ;;
   *)
@@ -125,11 +127,14 @@ for panel in rebecca marzban pasarguard 3x-ui vpn-ui; do
     printf '     actual output: %s\n' "$output" >&2
     ;;
   esac
+  # The report always names the template, so a rejected command is not accepted
+  # as a successful report.
   output="$("$COMMAND" --panel "$panel" template-status 2>&1 || true)"
-  if [[ -n "$output" ]]; then
+  if [[ "$output" == *Template* ]]; then
     ok "panel ${panel} template status prints a report"
   else
     no "panel ${panel} template status prints a report"
+    printf '     actual output: %s\n' "$output" >&2
   fi
 done
 

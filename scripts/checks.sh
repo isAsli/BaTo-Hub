@@ -162,11 +162,19 @@ for metadata in panels/*/panel.json tools/*/tool.json; do
 done
 pass "version ${version} is consistent"
 
+step "release manifest"
+# The checked in manifest must describe the files of this tree exactly, so a
+# stale entry cannot survive into a release. The same code path builds the
+# manifest for a release.
+if bash scripts/build-release.sh --verify-manifest; then
+  pass "manifest.json matches the working tree"
+else
+  fail "manifest.json does not match the working tree"
+fi
+
 step "documentation and hygiene"
 required_docs=(
-  README.md README.fa.md CHANGELOG.md LICENSE
-  SECURITY.md SECURITY.fa.md CONTRIBUTING.md CONTRIBUTING.fa.md
-  SUPPORT.md SUPPORT.fa.md CODE_OF_CONDUCT.md CODE_OF_CONDUCT.fa.md
+  README.md README.fa.md DOCS.md DOCS.fa.md SECURITY.md LICENSE
 )
 for doc in "${required_docs[@]}"; do
   [[ -s "$doc" ]] || fail "documentation file is missing or empty: $doc"

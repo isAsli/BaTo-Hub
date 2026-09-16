@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 # Subscription template helpers.
 #
+# The subscription template ships once, at templates/subscription/index.html.
+# A panel may override it with its own file at
+# panels/<panel>/templates/subscription/index.html, which wins when it exists.
 # A template is always copied out of the BaToHub release tree into a panel
 # specific directory, and the previous file is kept under BaToHub state storage
 # before it is replaced, so no panel template is ever overwritten without a copy.
@@ -34,16 +37,26 @@ template_backup_path() {
   printf '%s/%s.%s\n' "$(template_backup_dir)" "$(basename "$(dirname "$target")")-$(basename "$target")" "$(current_timestamp)"
 }
 
-# Resolves the template file to install: the one bundled with the panel, or an
-# operator supplied path when given at the prompt.
+# Resolves the template file to install, in order of preference: a panel
+# specific override under panels/<panel>/templates/subscription/index.html, the
+# shared template at templates/subscription/index.html, or an operator supplied
+# path when given at the prompt.
 template_resolve_source() {
-  local bundled="${PANEL_MODULE_DIR:-}/templates/subscription/index.html" answer
-  if [[ -r "$bundled" ]]; then
-    printf '%s\n' "$bundled"
+  local override="${PANEL_MODULE_DIR:-}/templates/subscription/index.html"
+  local shared="${BATOHUB_ROOT:-/opt/batohub}/templates/subscription/index.html"
+  local answer
+  if [[ -r "$override" ]]; then
+    printf '%s\n' "$override"
+    return 0
+  fi
+  if [[ -r "$shared" ]]; then
+    printf '%s\n' "$shared"
     return 0
   fi
   if [[ "$INTERACTIVE" != 1 ]]; then
-    err "No bundled template is available for panel ${PANEL_NAME:-unknown}."
+    err "No subscription template was found for panel ${PANEL_NAME:-unknown}."
+    err "Expected the shared template at: $shared"
+    err "or a panel override at: $override"
     return 1
   fi
   answer="$(trim "$(ui_prompt 'Path of the template file to install: ' '') ")"

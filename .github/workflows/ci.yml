@@ -23,3 +23,39 @@ jobs:
 
       - name: Shell syntax, interfaces and hygiene
         run: bash scripts/checks.sh
+
+  container-verify-ubuntu:
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run installation verification in a clean Ubuntu 22.04 userland
+        run: sudo bash scripts/container-verify.sh ubuntu:22.04 | tee container-verify-ubuntu-2204.log
+
+      - name: Upload the verification log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-verify-ubuntu-2204
+          path: container-verify-ubuntu-2204.log
+          if-no-files-found: error
+
+  container-verify-debian:
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Run installation verification in a clean Debian 12 userland
+        run: sudo bash scripts/container-verify.sh debian:12 | tee container-verify-debian-12.log
+
+      - name: Upload the verification log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-verify-debian-12
+          path: container-verify-debian-12.log
+          if-no-files-found: error

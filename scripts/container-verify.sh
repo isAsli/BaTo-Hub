@@ -15,6 +15,9 @@ set -Eeuo pipefail
 # The script must run as root. It exits non-zero when any step fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Read from VERSION so the checks never carry a version literal of their own.
+RELEASE_VERSION="$(tr -d '[:space:]' <"${ROOT}/VERSION")"
+export BATOHUB_EXPECTED_VERSION="$RELEASE_VERSION"
 IMAGE="${1:?usage: container-verify.sh IMAGE [WORK_DIR]}"
 IMAGE_REF="${IMAGE%%:*}"
 IMAGE_TAG="${IMAGE#*:}"
@@ -159,7 +162,7 @@ fail() { echo "CHECK FAILED: $1"; exit 1; }
 contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
 version="$(BaToHub --version)"
-contains "$version" "0.0.3" || fail "--version: $version"
+contains "$version" "${BATOHUB_EXPECTED_VERSION:?}" || fail "--version: $version"
 validate="$(BaToHub --validate)"
 contains "$validate" "interface ok" || fail "--validate"
 BaToHub --check || fail "--check"
@@ -192,7 +195,6 @@ BaToHub --rebuild-integrity >/dev/null || fail "--rebuild-integrity"
 BaToHub --check || fail "--check after rebuild"
 
 printf "tamper detection: "
-rebecca_marker=""
 echo "" >> /opt/batohub/core/main.sh
 if BaToHub --check >/dev/null 2>&1; then
   echo "FAILED: modification was not detected"

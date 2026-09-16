@@ -19,8 +19,6 @@ FORBIDDEN_IDENTIFIERS = ("@BaTo_Help", "@BaToHub", "t.me/", "telegram")
 SKIP_NAMES = (
     os.path.join("scripts", "checks_text.py"),
     os.path.join("scripts", "checks.sh"),
-    "SECURITY_AUDIT.md",
-    "SECURITY_AUDIT.fa.md",
     # The GNU GPL text is copied verbatim and must never be reworded.
     "LICENSE",
 )

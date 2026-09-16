@@ -58,7 +58,8 @@ Usage:
   BaToHub --uninstall          Remove BaToHub (keeps panels and their data)
 
 Panel commands for --panel: detect, version, status, install, uninstall,
-ssl-issue, ssl-renew, ssl-status, template-apply, template-remove, update, logs.
+ssl-issue, ssl-renew, ssl-status, template-apply, template-status,
+template-remove, update, logs.
 EOF
 }
 
@@ -178,7 +179,7 @@ first_run_flow() {
       return 0
     fi
     printf '\nIf your panel is not among the supported panels, it is not compatible with BaToHub.\n'
-    printf 'Requests for additional panels are handled through the support channel described in the SUPPORT document.\n'
+    printf 'Requests for additional panels are handled through the support contact listed in the README.\n'
     limited_menu
     return 0
     ;;
@@ -615,6 +616,7 @@ cli_panel_command() {
     need_root || return 1
     panel_template_apply
     ;;
+  template-status) panel_template_status ;;
   template-remove)
     need_root || return 1
     panel_template_remove
