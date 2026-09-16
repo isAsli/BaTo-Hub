@@ -28,6 +28,19 @@ PANEL_INTERFACE_FUNCTIONS=(
   panel_menu
 )
 
+# The node interface a panel has to implement when its metadata declares node
+# support. It lives in panels/<name>/nodes/module.sh and is loaded on demand.
+PANEL_NODE_INTERFACE_FUNCTIONS=(
+  node_api_available
+  node_list
+  node_register
+  node_deregister
+  node_restart
+  node_show
+  node_logs
+  node_state
+)
+
 TOOL_INTERFACE_FUNCTIONS=(
   tool_detect
   tool_version
@@ -88,7 +101,35 @@ loader_validate_panel_files() {
       missing=1
     fi
   done
+  if panel_meta_get "$name" nodes.supported 2>/dev/null | grep -q '^true$'; then
+    if [[ ! -r "${PANEL_DIR}/${name}/nodes/module.sh" ]]; then
+      err "Panel ${name} declares node support but has no nodes/module.sh"
+      missing=1
+    fi
+  fi
   return "$missing"
+}
+
+# A panel that declares node support must implement the whole node interface. The
+# interface is checked in a subshell so the caller's panel context is untouched.
+loader_validate_panel_nodes() {
+  local name="$1"
+  if ! panel_meta_get "$name" nodes.supported 2>/dev/null | grep -q '^true$'; then
+    return 0
+  fi
+  (
+    set -Eeuo pipefail
+    panel_load "$name" >/dev/null 2>&1 || exit 1
+    panel_submodule nodes >/dev/null 2>&1 || exit 1
+    fn=""
+    for fn in "${PANEL_NODE_INTERFACE_FUNCTIONS[@]}"; do
+      declare -F "$fn" >/dev/null 2>&1 || exit 1
+    done
+  ) || {
+    err "Panel ${name} does not implement the complete node interface."
+    return 1
+  }
+  return 0
 }
 
 tool_exists() {
@@ -143,7 +184,9 @@ loader_validate_all() {
   local name status=0
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
-    if (loader_load_panel "$name") >/dev/null 2>&1; then
+    if (loader_load_panel "$name") >/dev/null 2>&1 &&
+      loader_validate_panel_files "$name" >/dev/null 2>&1 &&
+      loader_validate_panel_nodes "$name" >/dev/null 2>&1; then
       printf 'panel %-12s interface ok\n' "$name"
     else
       printf 'panel %-12s interface FAILED\n' "$name"

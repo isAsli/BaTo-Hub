@@ -1,7 +1,7 @@
 {
   "name": "vpn-ui",
   "display_name": "VPN-UI",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "VPN-UI panel integration. Although VPN-UI descends from the same code base as 3X-UI, it is installed under /opt/vpn-ui by its own deployment script and is managed independently.",
   "service_name": "vpn-ui",
   "default_port": 2053,
@@ -29,5 +29,52 @@
   "source_repo": "Sir-MmD/vpn-ui",
   "supports_version_pinning": false,
   "version_pin_scope": "none",
-  "dev_channel_argument": ""
+  "dev_channel_argument": "",
+  "supports_docker": true,
+  "docker_container_name": "vpn-ui",
+  "nodes": {
+    "supported": true,
+    "api_base": "http://127.0.0.1:{port}",
+    "api_auth": "login-cookie",
+    "login_body": "username={user_encoded}&password={password_encoded}",
+    "login_content_type": "application/x-www-form-urlencoded",
+    "credentials": {
+      "username_env": "VPNUI_USERNAME",
+      "password_env": "VPNUI_PASSWORD"
+    },
+    "endpoints": {
+      "login": "/login",
+      "list": "/panel/api/node/list",
+      "add": "/panel/api/node/add",
+      "remove": "/panel/api/node/del/{id}",
+      "restart": "/panel/api/node/restart/{id}",
+      "status": "/panel/api/node/get/{id}",
+      "logs": "/panel/api/node/logs/{id}"
+    },
+    "list_container": "obj",
+    "list_fields": [
+      "id",
+      "name",
+      "address",
+      "status"
+    ],
+    "detail_status_field": "status",
+    "add_id_field": "obj.id",
+    "add_body": "{\"name\":\"{name}\",\"address\":\"{host}\",\"port\":{port}}",
+    "roles": [
+      "node"
+    ],
+    "default_role": "node",
+    "default_node_port": 62050,
+    "node_installer_url": "",
+    "node_install_arguments": []
+  },
+  "users": {
+    "mode": "inbounds",
+    "list_path": "/panel/api/inbounds/list",
+    "list_container": "obj",
+    "create_path": "/panel/api/inbounds/add",
+    "create_body": "{inbound}",
+    "note": "VPN-UI keeps its clients inside inbounds, so a migration of this panel copies whole inbounds. A migration to or from a user-list panel is refused with an explanation instead of being approximated."
+  }
 }

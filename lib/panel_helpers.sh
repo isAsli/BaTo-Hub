@@ -154,7 +154,16 @@ panel_declared_paths() {
 }
 
 panel_restart_safe() {
-  local service="${1:-$PANEL_SERVICE}"
+  local service="${1:-$PANEL_SERVICE}" container
+  # A container installation is restarted through Docker; the container is only
+  # used when it actually exists, so a native installation is never mistaken for
+  # one.
+  if container="$(docker_panel_container "${PANEL_NAME:-}" 2>/dev/null)"; then
+    if ! docker_container_restart "$container"; then
+      return 1
+    fi
+    return 0
+  fi
   if service_registered "$service"; then
     if ! run_logged "restart ${service}" systemctl restart "$service"; then
       err "Service ${service} failed to restart. Inspect: journalctl -u ${service} -n 50"
@@ -190,9 +199,25 @@ panel_version_generic() {
 }
 
 panel_status_generic() {
+  local container state
   if ! panel_detect_generic; then
     printf '%s\n' not_installed
-  elif service_active "${PANEL_SERVICE:-}"; then
+    return 0
+  fi
+  if container="$(docker_panel_container "${PANEL_NAME:-}" 2>/dev/null)"; then
+    state="$(docker_container_state "$container" 2>/dev/null || true)"
+    case "$state" in
+    running)
+      printf '%s\n' running
+      return 0
+      ;;
+    *)
+      printf '%s\n' stopped
+      return 0
+      ;;
+    esac
+  fi
+  if service_active "${PANEL_SERVICE:-}"; then
     printf '%s\n' running
   else
     printf '%s\n' stopped
@@ -210,7 +235,11 @@ panel_status_text() {
 }
 
 panel_logs_generic() {
-  local service="${1:-$PANEL_SERVICE}" path="${2:-$PANEL_PATH}"
+  local service="${1:-$PANEL_SERVICE}" path="${2:-$PANEL_PATH}" container
+  if container="$(docker_panel_container "${PANEL_NAME:-}" 2>/dev/null)"; then
+    docker_container_logs "$container" 80
+    return 0
+  fi
   if service_registered "$service"; then
     journalctl -u "$service" -n 80 --no-pager
     return 0

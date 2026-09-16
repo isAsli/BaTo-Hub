@@ -1,7 +1,7 @@
 {
   "name": "marzban",
   "display_name": "Marzban",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Marzban panel integration. Marzban is a Python and React panel installed under /opt/marzban by the official Marzban scripts.",
   "service_name": "marzban",
   "default_port": 8000,
@@ -28,5 +28,60 @@
   "source_repo": "Gozargah/Marzban",
   "supports_version_pinning": true,
   "version_pin_scope": "install",
-  "dev_channel_argument": "--dev"
+  "dev_channel_argument": "--dev",
+  "supports_docker": true,
+  "docker_container_name": "marzban",
+  "nodes": {
+    "supported": true,
+    "api_base": "http://127.0.0.1:{port}",
+    "api_auth": "login",
+    "login_body": "username={user_encoded}&password={password_encoded}",
+    "login_content_type": "application/x-www-form-urlencoded",
+    "login_token_field": "access_token",
+    "credentials": {
+      "username_env": "SUDO_USERNAME",
+      "password_env": "SUDO_PASSWORD"
+    },
+    "endpoints": {
+      "login": "/api/admin/token",
+      "list": "/api/nodes",
+      "add": "/api/node",
+      "remove": "/api/node/{id}",
+      "restart": "/api/node/{id}/restart",
+      "status": "/api/node/{id}",
+      "logs": "/api/node/{id}/logs"
+    },
+    "list_container": "",
+    "list_fields": [
+      "id",
+      "name",
+      "address",
+      "status",
+      "xray_version"
+    ],
+    "detail_status_field": "status",
+    "add_id_field": "id",
+    "add_body": "{\"name\":\"{name}\",\"address\":\"{host}\",\"port\":{port},\"api_port\":62051,\"usage_coefficient\":1,\"status\":\"connecting\"}",
+    "roles": [
+      "node"
+    ],
+    "default_role": "node",
+    "default_node_port": 62050,
+    "node_installer_url": "https://raw.githubusercontent.com/Gozargah/Marzban-node/master/install.sh",
+    "node_install_arguments": []
+  },
+  "users": {
+    "mode": "users",
+    "list_path": "/api/users",
+    "list_container": "",
+    "list_fields": [
+      "username",
+      "status",
+      "expire",
+      "data_limit",
+      "used_traffic"
+    ],
+    "create_path": "/api/user",
+    "create_body": "{\"username\":{username},\"status\":{status},\"expire\":{expire},\"data_limit\":{data_limit},\"proxies\":{\"vless\":{},\"vmess\":{}}}"
+  }
 }

@@ -1,7 +1,7 @@
 {
   "name": "3x-ui",
   "display_name": "3X-UI (Sanaei)",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "3X-UI panel integration. 3X-UI is installed under /usr/local/x-ui with its configuration and database in /etc/x-ui.",
   "service_name": "x-ui",
   "default_port": 2053,
@@ -29,5 +29,54 @@
   "source_repo": "MHSanaei/3x-ui",
   "supports_version_pinning": true,
   "version_pin_scope": "install",
-  "dev_channel_argument": "dev"
+  "dev_channel_argument": "dev",
+  "supports_docker": true,
+  "docker_container_name": "x-ui",
+  "nodes": {
+    "supported": true,
+    "api_base": "http://127.0.0.1:{port}",
+    "api_auth": "login-cookie",
+    "login_body": "username={user_encoded}&password={password_encoded}",
+    "login_content_type": "application/x-www-form-urlencoded",
+    "credentials": {
+      "username_env": "XUI_USERNAME",
+      "password_env": "XUI_PASSWORD"
+    },
+    "endpoints": {
+      "login": "/login",
+      "list": "/panel/api/node/list",
+      "add": "/panel/api/node/add",
+      "remove": "/panel/api/node/del/{id}",
+      "restart": "/panel/api/node/restart/{id}",
+      "status": "/panel/api/node/get/{id}",
+      "logs": "/panel/api/node/logs/{id}"
+    },
+    "list_container": "obj",
+    "list_fields": [
+      "id",
+      "name",
+      "address",
+      "status"
+    ],
+    "detail_status_field": "status",
+    "add_id_field": "obj.id",
+    "add_body": "{\"name\":\"{name}\",\"address\":\"{host}\",\"port\":{port}}",
+    "roles": [
+      "node"
+    ],
+    "default_role": "node",
+    "default_node_port": 62050,
+    "node_installer_url": "https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh",
+    "node_install_arguments": [
+      "node"
+    ]
+  },
+  "users": {
+    "mode": "inbounds",
+    "list_path": "/panel/api/inbounds/list",
+    "list_container": "obj",
+    "create_path": "/panel/api/inbounds/add",
+    "create_body": "{inbound}",
+    "note": "3X-UI keeps its clients inside inbounds, so a migration of this panel copies whole inbounds. A migration to or from a user-list panel is refused with an explanation instead of being approximated."
+  }
 }

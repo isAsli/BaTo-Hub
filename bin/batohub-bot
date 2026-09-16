@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# BaToHub Telegram bot process.
+#
+# The process is started by systemd. It loads the same libraries as the
+# interactive interface, so a command it handles passes through exactly the same
+# checks: the configuration, the administrator roles, and the permission gate of
+# every section. A command an account is not allowed to run is refused.
+
+if [[ -z "${BATOHUB_ROOT:-}" ]]; then
+  self_path="${BASH_SOURCE[0]}"
+  if command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$self_path" 2>/dev/null || true)"
+    [[ -n "$resolved" ]] && self_path="$resolved"
+  fi
+  BATOHUB_ROOT="$(cd "$(dirname "$self_path")/.." && pwd)"
+fi
+export BATOHUB_ROOT
+
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/common.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/api_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/docker_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/panel_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/node_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/ssl_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/ssl_multi.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/template_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/backup_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/telegram_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/alert_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/report_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/admin_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/bot_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/panel_loader.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/nodes_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/ssl_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/update.sh"
+
+main() {
+  case "${1:-}" in
+  -h | --help)
+    printf 'Usage: %s [--once]\n' "${0##*/}"
+    printf 'Runs the BaToHub Telegram management bot in the foreground.\n'
+    printf 'The systemd unit batohub-bot.service manages it.\n'
+    return 0
+    ;;
+  --once)
+    # One polling round, used by the verification suite and by an operator who
+    # wants to check the configuration without starting the service.
+    bot_config_ensure || return 1
+    bot_poll_once
+    return $?
+    ;;
+  *)
+    bot_run
+    ;;
+  esac
+}
+
+main "$@"

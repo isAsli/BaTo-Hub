@@ -1,7 +1,7 @@
 {
   "name": "foxima",
   "display_name": "Foxima",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Foxima is a PHP management interface that drives several panel families. Its official installer deploys a Docker Compose stack, writes the configuration and installs its own management command, so BaToHub drives that installer and never writes the configuration, the stack or its data.",
   "service_name": "",
   "default_port": 443,

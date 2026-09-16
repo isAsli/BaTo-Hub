@@ -16,23 +16,76 @@ fi
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/lib/common.sh"
 # shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/api_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/docker_helpers.sh"
+# shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/lib/panel_helpers.sh"
 # shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/node_helpers.sh"
+# shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/lib/ssl_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/ssl_multi.sh"
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/lib/template_helpers.sh"
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/lib/backup_helpers.sh"
 # shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/timer_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/telegram_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/server_tools_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/migration_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/alert_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/admin_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/report_helpers.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/lib/bot_helpers.sh"
+# shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/core/panel_loader.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/nodes_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/ssl_manager.sh"
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/core/backup_manager.sh"
 # shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/backup_delivery.sh"
+# shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/core/tools_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/docker_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/server_tools_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/migration_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/alerts_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/admins_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/reports_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/bot_manager.sh"
+# shellcheck source=/dev/null
+. "${BATOHUB_ROOT}/core/hub_menu.sh"
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/core/update.sh"
 # shellcheck source=/dev/null
 . "${BATOHUB_ROOT}/security/integrity.sh"
+
+# A panel session cookie lives in a 0600 temporary file. It is removed when the
+# command finishes, so no session credential outlives the process that made it.
+cleanup_on_exit() {
+  nodes_session_cleanup >/dev/null 2>&1 || true
+}
+trap cleanup_on_exit EXIT
 
 usage() {
   cat <<'EOF'
@@ -67,6 +120,28 @@ install-version takes the release to install as its next argument:
 
 tool commands for --tool: detect, version, versions, status, logs, configure,
 install, install-version, update, uninstall.
+
+Additional sections:
+  BaToHub --nodes CMD          list, add, remove, panels, panel-list, show,
+                               restart, logs, bundle
+
+--nodes add registers a node without the menu:
+  BaToHub --nodes add rebecca node-1 default 10.0.0.5 62050 [fingerprint] [tls]
+  BaToHub --ssl CMD            list, register, unregister, renew, status, revoke
+  BaToHub --backup-deliver CMD status, test, send, ledger
+  BaToHub --server CMD         firewall, fail2ban, bbr, limits, time
+  BaToHub --container CMD      list, mode, status, logs, restart, stats, update
+  BaToHub --migration CMD      pairs, preview, run
+  BaToHub --alerts CMD         status, check, run, schedule, unschedule, enable,
+                               disable, threshold, types
+  BaToHub admin CMD            list, status, permissions, roles, add, remove,
+                               passwd, role, check
+  BaToHub --reports CMD        list, show, export, exports, rotate
+  BaToHub --bot CMD            status, service, remove-service, logs, once, users, check
+
+Scheduled entries used by the systemd timers:
+  BaToHub --backup-deliver send
+  BaToHub --alerts-run
 EOF
 }
 
@@ -311,7 +386,7 @@ selected_panel_menu() {
     printf '0) Exit\n'
     choice="$(ui_menu_choice)"
     case "$choice" in
-    1) ssl_menu ;;
+    1) ssl_menu_multi ;;
     2) template_menu ;;
     3) panel_status_menu ;;
     4) panel_version_menu ;;
@@ -583,15 +658,17 @@ interactive_main() {
   # case a mismatch refuses the interface instead of only being reported.
   integrity_apply_before_run || return 1
   panel="$(panel_config_name)"
-  if [[ -n "$panel" ]]; then
-    if panel_exists "$panel"; then
-      selected_panel_menu "$panel"
-      return 0
-    fi
+  if [[ -z "$panel" ]]; then
+    first_run_flow
+    return 0
+  fi
+  if ! panel_exists "$panel"; then
     err "The configured panel is not available in this release: $panel"
     printf 'Choose a supported panel to continue.\n'
+    panel_choice_menu
+    return 0
   fi
-  first_run_flow
+  hub_menu
 }
 
 cli_panel_command() {
@@ -783,6 +860,52 @@ main() {
     ;;
   --validate)
     loader_validate_all
+    ;;
+  --nodes)
+    shift
+    need_root || return 1
+    nodes_cli "$@"
+    ;;
+  --ssl)
+    shift
+    ssl_cli "$@"
+    ;;
+  --backup-deliver)
+    need_root || return 1
+    shift
+    backup_delivery_cli "${1:-status}"
+    ;;
+  --server)
+    shift
+    server_tools_cli "$@"
+    ;;
+  --container)
+    shift
+    container_cli "$@"
+    ;;
+  --migration)
+    shift
+    migration_cli "$@"
+    ;;
+  --alerts)
+    shift
+    alerts_cli "$@"
+    ;;
+  --alerts-run)
+    need_root || return 1
+    alert_run
+    ;;
+  --reports)
+    shift
+    reports_cli "$@"
+    ;;
+  --bot)
+    shift
+    bot_cli "$@"
+    ;;
+  admin | --admin)
+    shift
+    admins_cli "$@"
     ;;
   --uninstall)
     need_root || return 1
