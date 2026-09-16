@@ -9,22 +9,22 @@ A modular TUI server management hub, written in Bash, that manages VPN and proxy
 
 ## Quick Access
 
-- [About BaToHub](#about-batohub)
-- [Features](#features)
-- [Supported Panels](#supported-panels)
-- [Supported Tools](#supported-tools)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Documentation](#documentation)
-- [Donation](#donation)
-- [License](#license)
-- [Contact](#contact)
+- [1. About BaToHub](#1-about-batohub)
+- [2. Features](#2-features)
+- [3. Supported Panels](#3-supported-panels)
+- [4. Supported Tools](#4-supported-tools)
+- [5. Requirements](#5-requirements)
+- [6. Installation](#6-installation)
+- [7. Documentation](#7-documentation)
+- [8. Donation](#8-donation)
+- [9. License](#9-license)
+- [10. Contact](#10-contact)
 
-## About BaToHub
+## 1. About BaToHub
 
 BaToHub is a server management hub that runs as a single command on a Linux server. It discovers panels and tools from its own module directory, manages one panel at a time, and exposes SSL, subscription template, backup, update and integrity operations for that panel through a text interface and a command line interface. It installs into a central directory and removes cleanly without touching panel data.
 
-## Features
+## 2. Features
 
 Architecture:
 
@@ -69,7 +69,7 @@ Security:
 - Strict file and directory permissions; private keys are never printed.
 - No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
 
-## Supported Panels
+## 3. Supported Panels
 
 | Name | Description | Install Path | Service Name | Default Port | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -79,13 +79,13 @@ Security:
 | 3X-UI | Sanaei web panel | `/usr/local/x-ui` | `x-ui` | 2053 | Database in `/etc/x-ui` |
 | VPN-UI | Fork of 3X-UI, managed independently | `/opt/vpn-ui` | `vpn-ui` | 2053 | Supports bare-IP certificates |
 
-## Supported Tools
+## 4. Supported Tools
 
 | Name | Description | Requirements | Notes |
 | --- | --- | --- | --- |
 | Foxima | PHP management interface for panel families | Docker, curl, wget, unzip | Drives the official installer, which deploys a Docker Compose stack and owns its configuration; BaToHub never writes the Foxima configuration and never removes the stack, its volumes or its data |
 
-## Requirements
+## 5. Requirements
 
 | Component | Requirement |
 | --- | --- |
@@ -97,7 +97,7 @@ Security:
 | Init system | systemd where present; its absence is detected and reported |
 | Certificates | acme.sh, only when a certificate is issued through BaToHub |
 
-## Installation
+## 6. Installation
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/isAsli/BaTo-Hub/main/install.sh)
@@ -107,17 +107,17 @@ The one-liner runs the installer from the main branch, and the installer itself 
 
 Manual install, configuration, troubleshooting, and the full command reference are in [DOCS.md](DOCS.md).
 
-## Documentation
+## 7. Documentation
 
 - Full documentation: [DOCS.md](DOCS.md)
 - Security model: [SECURITY.md](SECURITY.md)
 - Persian documentation: [README.fa.md](README.fa.md) and [DOCS.fa.md](DOCS.fa.md)
 
-## Donation
+## 8. Donation
 
 If BaToHub is useful to you, donations are accepted through the contact handle below.
 
-## License
+## 9. License
 
 BaToHub is released under the GNU General Public License, version 3. The full text is in [LICENSE](LICENSE).
 
@@ -127,6 +127,6 @@ Custom or proprietary variants are not permitted under this license. If you need
 
 BaToHub is free and open source. There are no paid tiers, no license enforcement, no telemetry, and no outbound call to a licensing server.
 
-## Contact
+## 10. Contact
 
 Support, bug reports, and ideas: **@DatPHP**
