@@ -10,9 +10,10 @@ set -Eeuo pipefail
 #   3. The release asset of a pinned tag: BaToHub-<version>.zip verified against
 #      its published .sha256 sidecar AND the sha256 recorded in the release
 #      manifest.json. Both must match before anything is extracted.
-#   4. The tagged source archive for the same tag (used only when the zip asset
-#      is missing). No checksum is published for this archive, so the failure to
-#      verify is stated plainly in the log and on the console.
+#   4. The tagged source archive for the same tag, and only when the zip asset
+#      is missing and BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 is set. No checksum is
+#      published for that archive, so it is refused by default: an unverified
+#      tree is never installed without an explicit operator decision.
 #
 # The one-liner pipes this file from the main branch of the repository, but the
 # release content it installs always comes from a pinned tag. The branch is the
@@ -277,6 +278,11 @@ else
     source_dir="$tree_dir"
   else
     STEP="tagged source archive download"
+    if [[ "${BATOHUB_ALLOW_UNVERIFIED_FALLBACK:-0}" != "1" ]]; then
+      log_line "the release asset ${asset_name} is not available and no checksum is published for the tagged source archive"
+      fail "no verifiable release asset is available for ${release_tag}. The tagged source archive carries no published checksum, so it is refused. Set BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 to install it anyway, or install a release that publishes its archive."
+    fi
+    log_line "BATOHUB_ALLOW_UNVERIFIED_FALLBACK is set; the tagged source archive is used without a published checksum"
     archive_url="https://github.com/${BATOHUB_REPO}/archive/refs/tags/${release_tag}.tar.gz"
     log_line "falling back to the tagged source archive: ${archive_url}"
     if ! curl --fail --location --show-error --retry 3 \

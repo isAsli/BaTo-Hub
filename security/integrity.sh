@@ -97,12 +97,19 @@ integrity_status_line() {
   return 1
 }
 
+# Gate called by the entry point. A mismatch is always reported and logged.
+# The operator keeps control by default: BaToHub is a management tool, not a
+# boot loader. When INTEGRITY_HARD_FAIL is enabled a mismatch refuses to
+# continue instead of only being reported.
 integrity_apply_before_run() {
-  # Called by the entry point. A mismatch is reported and logged, but the
-  # operator keeps control: BaToHub is a management tool, not a boot loader.
-  if ! integrity_check; then
-    warn "The installation does not match its integrity manifest. Review the report above."
-    warn "Log entry written to $LOG_FILE"
+  if integrity_check; then
+    return 0
+  fi
+  warn "The installation does not match its integrity manifest. Review the report above."
+  warn "Log entry written to $LOG_FILE"
+  if [[ "${INTEGRITY_HARD_FAIL:-0}" == "1" ]]; then
+    err "INTEGRITY_HARD_FAIL is enabled, so the interface is not started."
+    err "Rebuild the manifest with: BaToHub --rebuild-integrity"
     return 1
   fi
   return 0

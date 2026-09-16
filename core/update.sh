@@ -166,6 +166,16 @@ update_fetch_remote() {
   fi
 
   update_log "the release asset is not available: ${url}"
+  # The tagged source archive carries no published checksum, so it is used only
+  # when the operator explicitly accepts an unverified download.
+  if [[ "${BATOHUB_ALLOW_UNVERIFIED_FALLBACK:-0}" != "1" ]]; then
+    err "No verifiable release asset is available for ${UPDATE_TAG}."
+    err "The tagged source archive has no published checksum, so it is refused."
+    err "Set BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 to use it anyway."
+    update_log "fallback refused: no published checksum and the override is not set"
+    return 1
+  fi
+  update_log "BATOHUB_ALLOW_UNVERIFIED_FALLBACK is set; the tagged source archive is used without a published checksum"
   url="https://github.com/${GITHUB_REPO}/archive/refs/tags/${UPDATE_TAG}.tar.gz"
   update_log "falling back to the tagged source archive: ${url}"
   curl --fail --location --show-error --retry 3 \
