@@ -104,6 +104,7 @@
     "scripts/checks.sh": "3405b3c33455d8651aa28270f6c08cf82bbc590d67e942e0b86ffa39a0c4bd80",
     "scripts/checks_text.py": "7321e98a7859365c57f1b2d9bf42dcc7bcd9b123e71f7277fc848c424659e518",
     "scripts/container-verify.sh": "34ec469c979dc8f542ec853bb9ec27ef0cd551438cc536d60b8771015021efb9",
+    "scripts/release-body.sh": "0fa554afe4c58c02fe500229e22d6f767d6277eab329cb3ea7d18cdb7cd4c014",
     "scripts/verify-install.sh": "397964faba56a056eb1343223ce9313f8e2e8731e1ca043ceca2dd91cc1dae6a",
     "security/integrity.sh": "f892d5365153f27228e2503b0852d9ddadd7f97311246f96ad6058c4b91b7936",
     "templates/subscription/index.html": "46cdeafc86878696ff2297c3ca6a3d4e237152643c178330f27ed9dbc9aebc32",
