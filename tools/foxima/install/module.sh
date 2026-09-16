@@ -1,109 +1,141 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Foxima installation steps.
+# Foxima installation and update steps.
 #
-# The official installer is downloaded over HTTPS and executed where the operator
-# asked for it. Prerequisites are checked first so a missing PHP runtime or
-# database server is reported before anything is downloaded.
+# The official installer is the only component that deploys Foxima. It installs
+# Docker when it is missing, downloads a release archive, writes the
+# configuration and starts the Compose stack, and it decides the project
+# directory itself. BaToHub runs it as supplied by its author, passes it the
+# release argument its own command line documents, and records the directory it
+# used. BaToHub never writes the Foxima configuration and never removes the
+# stack or its data.
+#
+# Release argument, from the installer's own argument handling:
+#   -v <tag>  install that published release
+#   -beta     install the rolling build from the default branch
+#   (nothing) the installer opens its own menu
 
+# The commands the official installer uses to fetch and unpack a release.
 foxima_check_prerequisites() {
-  local missing=0
-  if ! need_cmd php; then
-    warn "PHP was not found. Foxima requires a PHP runtime."
-    missing=1
-  fi
-  if ! need_cmd mysql && ! need_cmd mariadb; then
-    warn "Neither the mysql nor the mariadb client was found. Foxima requires a database server."
-    missing=1
-  fi
+  local missing=0 command_name
   if ! need_cmd curl; then
     err "curl is required to download the Foxima installer."
     return 1
   fi
+  for command_name in wget unzip; do
+    if ! need_cmd "$command_name"; then
+      warn "$command_name was not found. The official Foxima installer uses it to fetch and unpack a release."
+      missing=1
+    fi
+  done
+  if ! need_cmd docker; then
+    printf 'Docker is not installed. The official installer installs it when the\n'
+    printf 'distribution it supports is detected.\n'
+  fi
   if [[ "$missing" -eq 1 ]]; then
-    printf 'Install the missing packages, or run Foxima from the hosting control panel\n'
-    printf 'that already provides PHP and a database server.\n'
+    printf 'Install the missing commands, then run the installation again.\n'
     return 1
   fi
   return 0
 }
 
-tool_install_impl() {
+# The argument list the official installer expects for a version, one element
+# per line. An empty list means the installer's own menu is used.
+foxima_installer_argv() {
+  local version="$1"
+  case "$version" in
+  "") return 0 ;;
+  "$FOXIMA_CHANNEL_KEY") printf '%s\n' -beta ;;
+  *) printf '%s\n' -v "$version" ;;
+  esac
+}
+
+# Runs the official installer for one version and records the result.
+foxima_install_version() {
+  local version="${1:-}" dir before after
+  panel_valid_version_string "$version" || return 1
   need_root || return 1
-  local target tmp
-  printf 'Foxima installation wizard\n'
-  printf 'Source: %s\n\n' "$FOXIMA_REPO_URL"
   if ! foxima_check_prerequisites; then
     return 1
   fi
-  target="$(trim "$(ui_prompt 'Install directory [/var/www/foxima]: ' '/var/www/foxima')")"
-  [[ -n "$target" ]] || target="/var/www/foxima"
-  if [[ "$target" == "/" || "$target" == /etc* || "$target" == /usr* || "$target" == /var/lib/batohub* ]]; then
-    err "Refusing to install Foxima into a system directory: $target"
+  before="$(tool_version)"
+  printf 'Foxima version before the installation: %s\n' "$before"
+  printf 'Source: %s\n' "$FOXIMA_REPO_URL"
+  printf 'The official installer deploys a Docker Compose stack and chooses the\n'
+  printf 'project directory itself. Ports 80 and 443 must be free.\n\n'
+  if [[ "$version" == "$FOXIMA_CHANNEL_KEY" ]]; then
+    printf 'Installing the rolling build from the default branch.\n'
+    panel_fetch_official_installer_args "$FOXIMA_INSTALLER_URL" -beta || {
+      err "The Foxima installer did not complete. Full output: ${LOG_FILE}"
+      return 1
+    }
+  else
+    printf 'Installing release %s.\n' "$version"
+    panel_fetch_official_installer_args "$FOXIMA_INSTALLER_URL" -v "$version" || {
+      err "The Foxima installer did not complete. Full output: ${LOG_FILE}"
+      return 1
+    }
+  fi
+  dir="$(foxima_installed_path || true)"
+  if [[ -z "$dir" ]]; then
+    err "The installer finished but no Foxima installation was found."
+    err "Expected the project directory at ${FOXIMA_PROJECT_DIR}."
     return 1
   fi
-  if [[ -d "$target" && -n "$(ls -A "$target" 2>/dev/null || true)" ]]; then
-    if ! ui_confirm "The directory ${target} is not empty. Continue?"; then
-      printf 'Nothing was installed.\n'
-      return 0
-    fi
-  fi
-  printf 'The official installer is interactive and may ask questions of its own.\n\n'
-  tmp="$(mktemp_file foxima)"
-  if ! curl --fail --location --show-error --silent --retry 3 \
-    --proto '=https' --proto-redir '=https' \
-    --tlsv1.2 --output "$tmp" "$FOXIMA_INSTALLER_URL"; then
-    rm -f -- "$tmp"
-    err "The Foxima installer could not be downloaded from ${FOXIMA_INSTALLER_URL}"
-    return 1
-  fi
-  install -d -m 0755 -o root -g root "$target"
-  if ! (cd "$target" && bash "$tmp") >>"$LOG_FILE" 2>&1; then
-    rm -f -- "$tmp"
-    err "The Foxima installer did not complete. Full output: ${LOG_FILE}"
-    printf 'The install directory was left in place at %s.\n' "$target"
-    return 1
-  fi
-  rm -f -- "$tmp"
-  install -d -m 0750 -o root -g root "$(dirname "$(foxima_state_file)")"
-  printf '%s\n' "$target" >"$(foxima_state_file)"
-  harden_file "$(foxima_state_file)" 0640
-  ok "Foxima installer finished. Installation directory recorded: ${target}"
-  printf 'Complete the remaining setup in the Foxima web interface.\n'
+  foxima_record_path "$dir"
+  after="$(tool_version)"
+  printf 'Project directory: %s\n' "$dir"
+  printf 'Installed version after the installation: %s\n' "$after"
+  version_change_log foxima install "$before" "$after" "$version"
+  ok "Foxima installation directory recorded: ${dir}"
+  printf 'Complete the remaining setup in the Foxima interface, or with: %s\n' \
+    "$FOXIMA_MANAGEMENT_CMD"
+  return 0
 }
 
-tool_uninstall_impl() {
+# Installation with a version choice. The published releases come from the
+# project's own repository; the newest stable release is the default.
+tool_install_impl() {
+  local version="${1:-}"
   need_root || return 1
-  local recorded
-  recorded="$(foxima_recorded_path)"
-  if [[ -z "$recorded" ]]; then
-    printf 'BaToHub has no record of installing Foxima on this server.\n'
-    printf 'Only an installation that BaToHub performed can be removed from here.\n'
-    printf 'Use the removal procedure of the hosting control panel that installed Foxima.\n'
-    return 0
+  if [[ -z "$version" ]]; then
+    ui_title "Install Foxima"
+    printf 'Installed version: %s\n\n' "$(tool_version)"
+    version="$(foxima_choose_version)" || return 1
   fi
-  printf 'BaToHub recorded this Foxima installation: %s\n' "$recorded"
-  printf 'A backup copy is created before anything is removed.\n'
-  if ! ui_confirm_phrase REMOVE "Remove ${recorded}?"; then
-    printf 'Nothing was removed.\n'
-    return 0
-  fi
-  local backup
-  backup="${STATE_DIR}/tools/foxima/removed-$(current_timestamp).tar.gz"
-  install -d -m 0750 -o root -g root "$(dirname "$backup")"
-  if ! tar --create --gzip --file "$backup" -C "$(dirname "$recorded")" "$(basename "$recorded")" >>"$LOG_FILE" 2>&1; then
-    err "The backup copy could not be created; nothing was removed."
-    return 1
-  fi
-  harden_file "$backup" 0600
-  rm -rf -- "$recorded"
-  rm -f -- "$(foxima_state_file)"
-  ok "Foxima installation removed. A copy was kept at ${backup}"
+  foxima_install_version "$version"
 }
 
+# Updating an existing installation is the job of the official management
+# command the installer installs: it selects the version itself and it owns the
+# configuration and the data volumes. BaToHub does not reimplement it and does
+# not replace the stack.
 tool_update_impl() {
   need_root || return 1
-  printf 'Foxima is updated by running its official installer again.\n'
-  tool_install_impl
+  local before
+  before="$(tool_version)"
+  printf 'Installed version: %s\n\n' "$before"
+  if ! tool_detect; then
+    err "Foxima is not installed on this server, so there is nothing to update."
+    return 1
+  fi
+  if [[ ! -x "$FOXIMA_MANAGEMENT_CMD" ]]; then
+    err "The official Foxima management command is not present: $FOXIMA_MANAGEMENT_CMD"
+    err "It is installed by the official Foxima installer."
+    err "Install or repair the installation before updating."
+    return 1
+  fi
+  if [[ "$INTERACTIVE" != 1 ]]; then
+    err "The official Foxima updater is an interactive menu and needs a terminal."
+    err "Run it directly: $FOXIMA_MANAGEMENT_CMD"
+    return 1
+  fi
+  printf 'Starting the official Foxima management menu.\n'
+  printf 'It performs the update, including the selection of a release, and it owns\n'
+  printf 'the configuration and the data of the installation.\n\n'
+  "$FOXIMA_MANAGEMENT_CMD"
+  printf '\nInstalled version after the update: %s\n' "$(tool_version)"
+  version_change_log foxima update "$before" "$(tool_version)" official-menu
+  return 0
 }
