@@ -243,6 +243,87 @@ else
   no "restore creates a safety backup first"
 fi
 
+step "backup path safety"
+# A restored archive must never write outside the BaToHub destination roots.
+# Each crafted archive carries a valid checksum and valid metadata, so a refusal
+# has to come from the path validation itself rather than from an earlier gate.
+craft_backup() {
+  local archive="$1" kind="$2"
+  python3 - "$archive" "$kind" "$LOGS" <<'PY'
+import io
+import os
+import sys
+import tarfile
+
+archive, kind, log_dir = sys.argv[1:4]
+prefix = os.path.relpath(log_dir, "/").replace(os.sep, "/")
+
+def add_file(handle, name, text):
+    info = tarfile.TarInfo(name)
+    payload = text.encode()
+    info.size = len(payload)
+    info.mode = 0o600
+    handle.addfile(info, io.BytesIO(payload))
+
+def add_symlink(handle, name, target):
+    info = tarfile.TarInfo(name)
+    info.type = tarfile.SYMTYPE
+    info.linkname = target
+    info.mode = 0o600
+    handle.addfile(info)
+
+if kind == "undeclared":
+    declared = f"{prefix}/batohub.log"
+elif kind == "outside_metadata":
+    declared = "/etc/batohub"
+else:
+    declared = prefix
+meta = "\n".join([
+    "format=1",
+    "batohub_version=0.0.0",
+    "panel=rebecca",
+    "panel_version=0.0.0",
+    "timestamp=2026-01-01T00:00:00Z",
+    f"paths={declared}",
+]) + "\n"
+
+with tarfile.open(archive, "w:gz") as handle:
+    if kind == "absolute":
+        add_file(handle, "/tmp/batohub-evil", "x\n")
+    elif kind == "traversal":
+        add_file(handle, f"{prefix}/../../batohub-evil", "x\n")
+    elif kind == "symlink":
+        add_file(handle, f"{prefix}/batohub.log", "x\n")
+        add_symlink(handle, f"{prefix}/batohub-link", "/etc/passwd")
+    elif kind in ("undeclared", "outside_metadata"):
+        add_file(handle, f"{prefix}/batohub.log", "x\n")
+        if kind == "undeclared":
+            add_file(handle, f"{prefix}/undeclared.log", "x\n")
+    else:
+        raise SystemExit(f"unknown archive kind: {kind}")
+    add_file(handle, "BaToHub-backup.meta", meta)
+PY
+  sha256sum "$archive" >"${archive}.sha256"
+}
+
+for kind in absolute traversal symlink undeclared outside_metadata; do
+  craft_backup "$WORK/crafted-${kind}.tar.gz" "$kind"
+done
+expect_output "restore refuses an absolute member path" "unsafe member path" \
+  "$COMMAND" --restore "$WORK/crafted-absolute.tar.gz"
+expect_output "restore refuses parent traversal in a member" "unsafe member path" \
+  "$COMMAND" --restore "$WORK/crafted-traversal.tar.gz"
+expect_output "restore refuses a symlink that leaves the destination roots" "unsafe target" \
+  "$COMMAND" --restore "$WORK/crafted-symlink.tar.gz"
+expect_output "restore refuses a member its metadata does not declare" "not declared in its metadata" \
+  "$COMMAND" --restore "$WORK/crafted-undeclared.tar.gz"
+check "no archive member was written outside the destination roots" test ! -e "$WORK/batohub-evil"
+check "no absolute member was written" test ! -e /tmp/batohub-evil
+check "the refused symlink was not created" test ! -e "$LOGS/batohub-link"
+
+expect_output "restore refuses metadata that declares a path outside the roots" "refusing to restore" \
+  "$COMMAND" --restore "$WORK/crafted-outside_metadata.tar.gz"
+
 step "update safety"
 cp -a "$archive" "$WORK/foreign.tar.gz"
 expect_output "restore refuses an archive without a checksum" "Checksum file not found" \
