@@ -58,6 +58,21 @@ panel_status() {
   printf '%s\n' stopped
 }
 
+# --- Version selection ------------------------------------------------------
+#
+# The official 3X-UI installer takes the release tag as its first positional
+# argument and reserves "dev" for the rolling build from the default branch, so
+# any published release can be installed by name.
+
+panel_available_versions() { panel_versions_available "${1:-5}"; }
+
+panel_version_installer_argv() {
+  # The tag is positional; "dev" is accepted in the same position.
+  printf '%s\n' "$1"
+}
+
+panel_install_version() { panel_install_selected_version "$XUI_INSTALLER_URL" "${1:-}"; }
+
 panel_install() {
   need_root || return 1
   printf '3X-UI is installed with its official installer.\n'

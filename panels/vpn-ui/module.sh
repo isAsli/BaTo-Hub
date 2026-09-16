@@ -49,6 +49,26 @@ panel_status() {
   printf '%s\n' stopped
 }
 
+# --- Version selection ------------------------------------------------------
+#
+# The official VPN-UI deployment script resolves the newest release itself and
+# accepts no version argument. BaToHub therefore reports the published versions
+# for information and refuses a pinned install instead of ignoring the request.
+
+panel_available_versions() { panel_versions_available "${1:-5}"; }
+
+panel_install_version() {
+  local version="${1:-}" latest
+  panel_valid_version_string "$version" || return 1
+  latest="$(panel_latest_stable_version)" || latest=""
+  if [[ -z "$latest" || "$version" != "$latest" ]]; then
+    panel_version_pinning_unsupported "$version"
+    return 1
+  fi
+  printf 'The VPN-UI deployment script installs the newest release, which is %s.\n' "$latest"
+  panel_install
+}
+
 panel_install() {
   need_root || return 1
   printf 'VPN-UI is installed with its official deployment script.\n'

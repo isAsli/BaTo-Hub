@@ -11,6 +11,8 @@ set -Eeuo pipefail
 PANEL_INTERFACE_FUNCTIONS=(
   panel_detect
   panel_version
+  panel_available_versions
+  panel_install_version
   panel_status
   panel_install
   panel_uninstall
@@ -31,6 +33,9 @@ TOOL_INTERFACE_FUNCTIONS=(
   tool_version
   tool_status
   tool_install
+  tool_update
+  tool_logs
+  tool_configure
   tool_uninstall
   tool_menu
 )

@@ -1,22 +1,35 @@
 {
   "name": "foxima",
   "display_name": "Foxima",
-  "version": "0.0.3",
-  "description": "Foxima is a PHP management interface that supports several panel families. BaToHub guides the operator through the official installer instead of reimplementing it.",
+  "version": "0.0.4",
+  "description": "Foxima is a PHP management interface that drives several panel families. Its official installer deploys a Docker Compose stack, writes the configuration and installs its own management command, so BaToHub drives that installer and never writes the configuration, the stack or its data.",
   "service_name": "",
-  "default_port": 80,
-  "default_path": "/var/www/foxima",
+  "default_port": 443,
+  "default_path": "/opt/faoxima",
   "config_paths": [
-    "/var/www/foxima"
+    "/opt/faoxima/.env",
+    "/opt/faoxima/docker-compose.yml",
+    "/opt/faoxima/config.php"
   ],
-  "data_paths": [],
+  "data_paths": [
+    "/opt/faoxima",
+    "/opt/bots"
+  ],
   "requirements": [
-    "php",
-    "mariadb-server",
-    "curl"
+    "docker",
+    "curl",
+    "wget",
+    "unzip",
+    "openssl"
   ],
   "supports_bare_ip_ssl": false,
   "supports_reseller": false,
-  "update_method": "official Foxima installer",
-  "installer_url": "https://raw.githubusercontent.com/Mmd-Amir/Faoxima/main/install.sh"
+  "update_method": "official Foxima management command",
+  "installer_url": "https://raw.githubusercontent.com/Mmd-Amir/Faoxima/main/install.sh",
+  "source_repo": "Mmd-Amir/Faoxima",
+  "supports_version_pinning": true,
+  "version_pin_scope": "install",
+  "dev_channel_argument": "",
+  "management_command": "/usr/local/bin/faoxima",
+  "installer_log": "/var/log/faoxima_installer.log"
 }

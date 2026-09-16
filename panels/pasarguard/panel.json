@@ -1,7 +1,7 @@
 {
   "name": "pasarguard",
   "display_name": "PasarGuard",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "PasarGuard panel integration. PasarGuard is installed under /opt/pasarguard by the official PasarGuard scripts.",
   "service_name": "pasarguard",
   "default_port": 8000,
@@ -24,5 +24,9 @@
   "template_method": "CUSTOM_TEMPLATES_DIRECTORY with SUBSCRIPTION_PAGE_TEMPLATE",
   "supports_bare_ip_ssl": false,
   "supports_reseller": false,
-  "update_method": "official PasarGuard script"
+  "update_method": "official PasarGuard script",
+  "source_repo": "PasarGuard/panel",
+  "supports_version_pinning": true,
+  "version_pin_scope": "install",
+  "dev_channel_argument": "--dev"
 }

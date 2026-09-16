@@ -51,6 +51,30 @@ panel_status() {
   printf '%s\n' stopped
 }
 
+# --- Version selection ------------------------------------------------------
+#
+# The official PasarGuard script documents "--version vX.Y.Z", "--pre-release"
+# and "--dev" for install. Its update verb pulls the newest release only, so a
+# pinned version is installed with the install verb, which sets the image tag
+# and leaves the panel data in place.
+
+panel_available_versions() {
+  panel_versions_available "${1:-5}"
+  # PasarGuard publishes a preview channel next to its development channel.
+  printf '%s\n' pre-release
+}
+
+panel_version_installer_argv() {
+  local version="$1"
+  case "$version" in
+  "$PANEL_DEV_CHANNEL_KEY") printf '%s\n' install --dev ;;
+  pre-release) printf '%s\n' install --pre-release ;;
+  *) printf '%s\n' install --version "$version" ;;
+  esac
+}
+
+panel_install_version() { panel_install_selected_version "$PASARGUARD_SCRIPT_URL" "${1:-}"; }
+
 panel_install() {
   need_root || return 1
   printf 'PasarGuard is installed with its official installer script.\n'

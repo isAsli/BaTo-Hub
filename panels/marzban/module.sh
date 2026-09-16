@@ -51,6 +51,26 @@ panel_status() {
   printf '%s\n' stopped
 }
 
+# --- Version selection ------------------------------------------------------
+#
+# The official Marzban script documents "--version vX.Y.Z" and "--dev" for
+# install. Its update verb pulls the newest release only, so a pinned version is
+# installed with the install verb, which rewrites the image reference in the
+# compose file and leaves the panel data directory in place.
+
+panel_available_versions() { panel_versions_available "${1:-5}"; }
+
+panel_version_installer_argv() {
+  local version="$1"
+  if [[ "$version" == "$PANEL_DEV_CHANNEL_KEY" ]]; then
+    printf '%s\n' install --dev
+    return 0
+  fi
+  printf '%s\n' install --version "$version"
+}
+
+panel_install_version() { panel_install_selected_version "$MARZBAN_SCRIPT_URL" "${1:-}"; }
+
 panel_install() {
   need_root || return 1
   printf 'Marzban is installed with its official installer script.\n'

@@ -1,7 +1,7 @@
 {
   "name": "rebecca",
   "display_name": "Rebecca",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Rebecca panel integration. Rebecca is distributed as a Go binary under /opt/rebecca, or as a Docker Compose stack in the same directory.",
   "service_name": "rebecca",
   "default_port": 8000,
@@ -27,5 +27,9 @@
   "template_method": "CUSTOM_TEMPLATES_DIRECTORY with SUBSCRIPTION_PAGE_TEMPLATE",
   "supports_bare_ip_ssl": false,
   "supports_reseller": false,
-  "update_method": "official Rebecca installer script"
+  "update_method": "official Rebecca installer script",
+  "source_repo": "rebeccapanel/Rebecca",
+  "supports_version_pinning": true,
+  "version_pin_scope": "install-and-update",
+  "dev_channel_argument": "--dev"
 }

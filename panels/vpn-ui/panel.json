@@ -1,7 +1,7 @@
 {
   "name": "vpn-ui",
   "display_name": "VPN-UI",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "VPN-UI panel integration. Although VPN-UI descends from the same code base as 3X-UI, it is installed under /opt/vpn-ui by its own deployment script and is managed independently.",
   "service_name": "vpn-ui",
   "default_port": 2053,
@@ -25,5 +25,9 @@
   "template_method": "the panel serves subscription content from its own settings; BaToHub stages template files and never edits the panel database",
   "supports_bare_ip_ssl": true,
   "supports_reseller": true,
-  "update_method": "official VPN-UI deployment script"
+  "update_method": "official VPN-UI deployment script",
+  "source_repo": "Sir-MmD/vpn-ui",
+  "supports_version_pinning": false,
+  "version_pin_scope": "none",
+  "dev_channel_argument": ""
 }

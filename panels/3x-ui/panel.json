@@ -1,7 +1,7 @@
 {
   "name": "3x-ui",
   "display_name": "3X-UI (Sanaei)",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "3X-UI panel integration. 3X-UI is installed under /usr/local/x-ui with its configuration and database in /etc/x-ui.",
   "service_name": "x-ui",
   "default_port": 2053,
@@ -25,5 +25,9 @@
   "template_method": "the panel serves subscription content from its own web settings; BaToHub stages template files and never edits the panel database",
   "supports_bare_ip_ssl": false,
   "supports_reseller": false,
-  "update_method": "official 3X-UI installer"
+  "update_method": "official 3X-UI installer",
+  "source_repo": "MHSanaei/3x-ui",
+  "supports_version_pinning": true,
+  "version_pin_scope": "install",
+  "dev_channel_argument": "dev"
 }

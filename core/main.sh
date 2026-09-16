@@ -49,6 +49,7 @@ Usage:
   BaToHub --select-panel NAME  Configure the panel BaToHub manages
   BaToHub --panel NAME CMD     Run one panel command without the menu
   BaToHub --tools              List supported tools
+  BaToHub --tool NAME CMD      Run one tool command without the menu
   BaToHub --backup             Create a backup now
   BaToHub --restore FILE       Restore a backup archive
   BaToHub --update             Update BaToHub from the configured source
@@ -57,9 +58,15 @@ Usage:
   BaToHub --validate           Validate every panel and tool interface
   BaToHub --uninstall          Remove BaToHub (keeps panels and their data)
 
-Panel commands for --panel: detect, version, status, install, uninstall,
-ssl-issue, ssl-renew, ssl-status, template-apply, template-status,
-template-remove, update, logs.
+Panel commands for --panel: detect, version, versions, install,
+install-version, uninstall, ssl-issue, ssl-renew, ssl-status, template-apply,
+template-status, template-remove, update, logs.
+
+install-version takes the release to install as its next argument:
+  BaToHub --panel rebecca install-version v1.4.0
+
+tool commands for --tool: detect, version, versions, status, logs, configure,
+install, install-version, update, uninstall.
 EOF
 }
 
@@ -289,34 +296,36 @@ selected_panel_menu() {
     printf '1) SSL management\n'
     printf '2) Subscription template\n'
     printf '3) Panel status\n'
-    printf '4) Panel update\n'
-    printf '5) Panel logs\n'
-    printf '6) Server information\n'
-    printf '7) Tools\n'
-    printf '8) Backup\n'
-    printf '9) Restore\n'
-    printf '10) Import backup\n'
-    printf '11) Settings\n'
-    printf '12) Update BaToHub\n'
-    printf '13) Integrity check\n'
-    printf '14) Uninstall BaToHub\n'
+    printf '4) Panel version\n'
+    printf '5) Panel update\n'
+    printf '6) Panel logs\n'
+    printf '7) Server information\n'
+    printf '8) Tools\n'
+    printf '9) Backup\n'
+    printf '10) Restore\n'
+    printf '11) Import backup\n'
+    printf '12) Settings\n'
+    printf '13) Update BaToHub\n'
+    printf '14) Integrity check\n'
+    printf '15) Uninstall BaToHub\n'
     printf '0) Exit\n'
     choice="$(ui_menu_choice)"
     case "$choice" in
     1) ssl_menu ;;
     2) template_menu ;;
     3) panel_status_menu ;;
-    4) panel_update_menu ;;
-    5) panel_logs_menu ;;
-    6) server_menu ;;
-    7) tools_menu ;;
-    8) backup_menu ;;
-    9) restore_menu ;;
-    10) import_menu "$PANEL_NAME" ;;
-    11) settings_menu ;;
-    12) update_menu ;;
-    13) integrity_menu ;;
-    14) uninstall_menu ;;
+    4) panel_version_menu ;;
+    5) panel_update_menu ;;
+    6) panel_logs_menu ;;
+    7) server_menu ;;
+    8) tools_menu ;;
+    9) backup_menu ;;
+    10) restore_menu ;;
+    11) import_menu "$PANEL_NAME" ;;
+    12) settings_menu ;;
+    13) update_menu ;;
+    14) integrity_menu ;;
+    15) uninstall_menu ;;
     0) return 0 ;;
     *) warn 'Invalid selection.' ;;
     esac
@@ -384,8 +393,7 @@ panel_status_menu() {
 }
 
 panel_update_menu() {
-  ui_title "Panel update - ${PANEL_DISPLAY}"
-  panel_update
+  panel_version_update_menu
   pause
 }
 
@@ -571,7 +579,9 @@ interactive_main() {
   local panel
   need_root || return 1
   ensure_runtime_dirs || true
-  integrity_apply_before_run || true
+  # The integrity check is advisory unless INTEGRITY_HARD_FAIL is set, in which
+  # case a mismatch refuses the interface instead of only being reported.
+  integrity_apply_before_run || return 1
   panel="$(panel_config_name)"
   if [[ -n "$panel" ]]; then
     if panel_exists "$panel"; then
@@ -590,10 +600,23 @@ cli_panel_command() {
     err "Usage: BaToHub --panel <panel> <command>"
     return 2
   }
+  if [[ "$#" -ge 2 ]]; then
+    shift 2
+  else
+    set --
+  fi
   loader_load_panel "$name" || return 1
   case "$command" in
   detect) panel_detect ;;
   version) panel_version ;;
+  versions) panel_available_versions "${1:-5}" ;;
+  install-version)
+    [[ -n "${1:-}" ]] || {
+      err "Usage: BaToHub --panel <panel> install-version <version>"
+      return 2
+    }
+    panel_version_install_selected "$1"
+    ;;
   status) panel_status ;;
   install)
     need_root || return 1
@@ -633,6 +656,69 @@ cli_panel_command() {
   esac
 }
 
+cli_tool_command() {
+  local name="${1:-}" command="${2:-}"
+  [[ -n "$name" && -n "$command" ]] || {
+    err "Usage: BaToHub --tool <tool> <command>"
+    return 2
+  }
+  if [[ "$#" -ge 2 ]]; then
+    shift 2
+  else
+    set --
+  fi
+  tool_load "$name" || return 1
+  case "$command" in
+  detect)
+    if tool_detect; then
+      printf 'installed\n'
+    else
+      printf 'not_installed\n'
+    fi
+    ;;
+  version) tool_version ;;
+  versions)
+    if declare -F tool_available_versions >/dev/null 2>&1; then
+      tool_available_versions "${1:-5}"
+    else
+      err "Tool ${name} does not publish a version list."
+      return 2
+    fi
+    ;;
+  status) tool_status ;;
+  logs) tool_logs ;;
+  configure) tool_configure ;;
+  install)
+    need_root || return 1
+    tool_install
+    ;;
+  install-version)
+    [[ -n "${1:-}" ]] || {
+      err "Usage: BaToHub --tool <tool> install-version <version>"
+      return 2
+    }
+    if declare -F tool_install_version >/dev/null 2>&1; then
+      tool_install_version "$1"
+    else
+      err "Tool ${name} does not support installing a chosen version."
+      return 2
+    fi
+    ;;
+  update)
+    need_root || return 1
+    tool_update
+    ;;
+  uninstall)
+    need_root || return 1
+    tool_uninstall
+    ;;
+  *)
+    err "Unknown tool command: $command"
+    return 2
+    ;;
+  esac
+}
+
 main() {
   case "${1:-}" in
   "" | --menu | -m)
@@ -651,6 +737,10 @@ main() {
   --tools)
     printf 'Supported tools:\n'
     tool_list_lines
+    ;;
+  --tool)
+    shift
+    cli_tool_command "$@"
     ;;
   --detect)
     local name found=0

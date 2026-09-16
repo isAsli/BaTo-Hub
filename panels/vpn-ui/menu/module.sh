@@ -41,7 +41,7 @@ panel_menu_impl() {
       panel_status_menu
       ;;
     4)
-      panel_update
+      panel_version_update_menu
       pause
       ;;
     5)

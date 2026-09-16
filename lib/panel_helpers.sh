@@ -247,8 +247,10 @@ panel_env_apply() {
   done
 }
 
-panel_fetch_official_installer() {
-  local url="$1" action="$2" log_target="${3:-$LOG_FILE}" tmp
+# Downloads an official installer over HTTPS into a temporary file and prints
+# its path. The caller runs it and removes it.
+panel_download_official_installer() {
+  local url="$1" tmp
   [[ "$url" == https://* ]] || {
     err "Refusing to download an installer over a non-HTTPS URL: $url"
     return 1
@@ -258,22 +260,44 @@ panel_fetch_official_installer() {
     return 1
   }
   tmp="$(mktemp_file installer)"
-  # shellcheck disable=SC2064
-  trap "rm -f -- '$tmp'" RETURN
   if ! curl --fail --location --show-error --silent --retry 3 \
     --proto '=https' --proto-redir '=https' \
     --tlsv1.2 --output "$tmp" "$url"; then
+    rm -f -- "$tmp"
     err "Download failed: $url"
     return 1
   fi
-  [[ -s "$tmp" ]] || {
+  if [[ ! -s "$tmp" ]]; then
+    rm -f -- "$tmp"
     err "Downloaded installer is empty: $url"
     return 1
-  }
+  fi
+  printf '%s\n' "$tmp"
+}
+
+# Runs a downloaded installer with the given arguments. Arguments are passed as
+# a list, so no argument is ever interpreted by a shell.
+panel_fetch_official_installer_args() {
+  local url="$1" log_target="${LOG_FILE}" status=0 tmp
+  shift
+  tmp="$(panel_download_official_installer "$url")" || return 1
+  set +e
+  bash "$tmp" "$@" >>"$log_target" 2>&1
+  status=$?
+  set -e
+  rm -f -- "$tmp"
+  if [[ "$status" -ne 0 ]]; then
+    return "$status"
+  fi
+  return 0
+}
+
+panel_fetch_official_installer() {
+  local url="$1" action="$2" log_target="${3:-$LOG_FILE}"
   if [[ -n "$action" ]]; then
-    bash "$tmp" "$action" >>"$log_target" 2>&1
+    panel_fetch_official_installer_args "$url" "$action"
   else
-    bash "$tmp" >>"$log_target" 2>&1
+    panel_fetch_official_installer_args "$url"
   fi
 }
 
@@ -314,4 +338,362 @@ panel_meta_summary() {
   printf 'Service: %s\n' "$(panel_service_for "$name")"
   printf 'Default port: %s\n' "$(panel_port_for "$name")"
   printf 'CLI: %s\n' "$(panel_cli_for "$name")"
+}
+
+# ---------------------------------------------------------------------------
+# Panel version detection and selection.
+#
+# Version pinning runs through each panel's own installer: the panel module
+# declares the argument its installer expects for a version, and the helpers
+# here resolve the published versions from the panel's own repository, present
+# the choice, run the installer, read the installed version back and record the
+# change under ${LOG_DIR}. No version list is maintained in BaToHub, so a new
+# release of a panel is selectable without changing this project.
+# ---------------------------------------------------------------------------
+
+# Selects a panel's development or preview channel instead of a release tag.
+PANEL_DEV_CHANNEL_KEY="dev"
+
+# A version is handed to an installer as one argument, so it is validated
+# before it is used.
+PANEL_VERSION_PATTERN='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
+
+panel_valid_version_string() {
+  local version="$1"
+  [[ -n "$version" ]] || {
+    err "A version is required."
+    return 1
+  }
+  if [[ ${#version} -gt 64 || ! "$version" =~ $PANEL_VERSION_PATTERN ]]; then
+    err "Refusing an unexpected version string: ${version}"
+    return 1
+  fi
+  return 0
+}
+
+panel_source_repo() { panel_meta_get "$1" source_repo; }
+panel_version_pin_scope() { panel_meta_get "$1" version_pin_scope; }
+panel_dev_channel_argument() { panel_meta_get "$1" dev_channel_argument; }
+
+panel_supports_version_pinning() {
+  [[ "$(panel_meta_get "$1" supports_version_pinning)" == "true" ]]
+}
+
+# Published release tags of a repository, newest first, as "tag<TAB>channel"
+# where channel is stable or prerelease. Only the published release list of that
+# repository is read; no version list is maintained in BaToHub.
+release_tags_for_repo() {
+  local repo="$1" limit="${2:-20}" url log_target="/dev/null"
+  [[ -n "$repo" ]] || {
+    err "No source repository is declared for this panel."
+    return 1
+  }
+  need_cmd curl || {
+    err "curl is required to list the published versions."
+    return 1
+  }
+  need_cmd python3 || {
+    err "python3 is required to list the published versions."
+    return 1
+  }
+  # The transport errors of the request are recorded in the log when it exists,
+  # and discarded otherwise, so a missing log file cannot fail the listing.
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    ensure_runtime_dirs >/dev/null 2>&1 || true
+    [[ -e "$LOG_FILE" ]] && log_target="$LOG_FILE"
+  fi
+  url="https://api.github.com/repos/${repo}/releases?per_page=${limit}"
+  curl --fail --silent --show-error --retry 3 --location \
+    --proto '=https' --proto-redir '=https' \
+    --tlsv1.2 --header 'Accept: application/vnd.github+json' "$url" \
+    2>>"$log_target" |
+    python3 -c '
+import json
+import sys
+
+try:
+    releases = json.load(sys.stdin)
+except ValueError:
+    raise SystemExit(1)
+if not isinstance(releases, list):
+    raise SystemExit(1)
+for release in releases:
+    tag = release.get("tag_name") or ""
+    if not tag or release.get("draft"):
+        continue
+    channel = "prerelease" if release.get("prerelease") else "stable"
+    sys.stdout.write(tag + "\t" + channel + "\n")
+'
+}
+
+# The stable releases a panel offers, newest first, limited to the number asked
+# for. The development channel is offered as the key "dev" when the panel
+# declares one. A panel module adds further channels by appending them to this
+# output.
+panel_versions_available() {
+  local limit="${1:-5}" name="${PANEL_NAME:-}" tags tag channel dev_arg count=0
+  tags="$(release_tags_for_repo "$(panel_source_repo "$name")" 30)" || return 1
+  while IFS=$'\t' read -r tag channel; do
+    [[ -n "$tag" ]] || continue
+    [[ "$channel" == "stable" ]] || continue
+    printf '%s\n' "$tag"
+    count=$((count + 1))
+    if [[ "$count" -ge "$limit" ]]; then
+      break
+    fi
+  done <<<"$tags"
+  dev_arg="$(panel_dev_channel_argument "$name")"
+  if [[ -n "$dev_arg" ]]; then
+    printf '%s\n' "$PANEL_DEV_CHANNEL_KEY"
+  fi
+  if [[ "$count" -eq 0 && -z "$dev_arg" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+# The newest published stable release of the loaded panel.
+panel_latest_stable_version() {
+  local tag channel
+  while IFS=$'\t' read -r tag channel; do
+    [[ -n "$tag" ]] || continue
+    [[ "$channel" == "stable" ]] || continue
+    printf '%s\n' "$tag"
+    return 0
+  done < <(release_tags_for_repo "$(panel_source_repo "${PANEL_NAME:-}")" 30)
+  return 1
+}
+
+# Prints numbered choices for a version list. The newest stable release is
+# marked and the development channel is labelled.
+version_choices_lines() {
+  local versions="$1" latest="$2" key index=0
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    index=$((index + 1))
+    if [[ "$key" == "$PANEL_DEV_CHANNEL_KEY" ]]; then
+      printf '%s) %s (development channel)\n' "$index" "$key"
+    elif [[ -n "$latest" && "$key" == "$latest" ]]; then
+      printf '%s) %s (latest stable)\n' "$index" "$key"
+    else
+      printf '%s) %s\n' "$index" "$key"
+    fi
+  done <<<"$versions"
+}
+
+# Prompts for a choice from a version list, prints the chosen key, and accepts a
+# version typed in instead of a number. Used by the panel menu and by tools.
+choose_version_from_list() {
+  local versions="$1" default="$2" latest="${3:-}" key answer index=0
+  [[ -n "$versions" ]] || {
+    err "No version could be listed."
+    return 1
+  }
+  [[ -n "$default" ]] || default="${versions%%$'\n'*}"
+  version_choices_lines "$versions" "$latest"
+  printf '0) Back\n'
+  answer="$(trim "$(ui_prompt "Select a version [${default}]: " '')")"
+  if [[ -z "$answer" ]]; then
+    printf '%s\n' "$default"
+    return 0
+  fi
+  if [[ "$answer" == "0" ]]; then
+    return 1
+  fi
+  if [[ "$answer" =~ ^[0-9]+$ ]]; then
+    while IFS= read -r key; do
+      [[ -n "$key" ]] || continue
+      index=$((index + 1))
+      if [[ "$index" -eq "$answer" ]]; then
+        printf '%s\n' "$key"
+        return 0
+      fi
+    done <<<"$versions"
+    err "Selection is out of range: ${answer}"
+    return 1
+  fi
+  panel_valid_version_string "$answer" || return 1
+  printf '%s\n' "$answer"
+}
+
+# Prompts for a panel version and prints the chosen key. The default is the
+# newest published stable release.
+panel_choose_version() {
+  local versions latest default
+  versions="$(panel_available_versions 5)" || return 1
+  [[ -n "$versions" ]] || {
+    err "No version of ${PANEL_DISPLAY:-$PANEL_NAME} could be listed."
+    return 1
+  }
+  latest="$(panel_latest_stable_version)" || latest=""
+  default="${latest:-${versions%%$'\n'*}}"
+  choose_version_from_list "$versions" "$default" "$latest"
+}
+
+# Records a version change of a panel or a tool with a timestamp, both in the
+# main log file and in ${LOG_DIR}/versions.log. Only versions and outcomes are
+# recorded, never configuration values.
+version_change_log() {
+  local component="$1" action="$2" before="$3" after="$4" requested="$5"
+  install -d -m 0750 -o root -g root "$LOG_DIR" 2>/dev/null || true
+  printf '[%s] component=%s action=%s requested=%s before=%s after=%s\n' \
+    "$(date '+%F %T%z')" "$component" "$action" "${requested:-none}" \
+    "${before:-unknown}" "${after:-unknown}" >>"${LOG_DIR}/versions.log" 2>/dev/null || true
+  log "VERSION component=${component} action=${action} requested=${requested:-none} before=${before:-unknown} after=${after:-unknown}"
+}
+
+# Reads the version back and compares it with the requested one. A panel
+# reports its own version string, which can differ in form from the release tag,
+# so a difference is reported instead of being treated as a confirmed install.
+panel_version_verify() {
+  local requested="$1" actual="$2" want have
+  if [[ -z "$actual" || "$actual" == "unknown" ]]; then
+    warn "The installed version could not be read back from ${PANEL_DISPLAY:-$PANEL_NAME}."
+    return 0
+  fi
+  if [[ "$requested" == "$PANEL_DEV_CHANNEL_KEY" ]]; then
+    printf 'Installed version: %s (development channel)\n' "$actual"
+    return 0
+  fi
+  want="${requested#v}"
+  have="${actual#v}"
+  if [[ "$want" == "$have" || "$actual" == *"$want"* ]]; then
+    ok "Installed version confirmed: ${actual}"
+    return 0
+  fi
+  warn "The panel reports version ${actual} while ${requested} was requested."
+  warn "Review the installer output in ${LOG_FILE}"
+  return 0
+}
+
+# Reported when a panel's official installer cannot be pinned to a version.
+panel_version_pinning_unsupported() {
+  local version="${1:-}"
+  err "${PANEL_DISPLAY:-$PANEL_NAME} does not support version pinning."
+  err "Its official installer always installs the newest published release."
+  if [[ -n "$version" ]]; then
+    err "Version ${version} cannot be selected. Use the panel install or update action instead."
+  fi
+  return 1
+}
+
+# Installs one version through the panel installer and records the change. Used
+# by the version menu and by --panel NAME install-version.
+panel_version_install_selected() {
+  local version="${1:-}" before after
+  # The version is validated before anything else, so an unexpected value is
+  # refused without touching the system.
+  panel_valid_version_string "$version" || return 1
+  need_root || return 1
+  before="$(panel_version)"
+  printf 'Panel: %s\n' "${PANEL_DISPLAY:-$PANEL_NAME}"
+  printf 'Installed version: %s\n' "$before"
+  printf 'Version requested: %s\n\n' "$version"
+  if ! panel_install_version "$version"; then
+    err "${PANEL_DISPLAY:-$PANEL_NAME} was not installed from version ${version}."
+    version_change_log "$PANEL_NAME" install "$before" "$(panel_version)" "$version"
+    return 1
+  fi
+  after="$(panel_version)"
+  printf 'Installed version after the operation: %s\n' "$after"
+  version_change_log "$PANEL_NAME" install "$before" "$after" "$version"
+  panel_version_verify "$version" "$after"
+  ok "${PANEL_DISPLAY:-$PANEL_NAME} version selection finished."
+  return 0
+}
+
+# The interactive version entry: prompts for a version, then installs it.
+panel_version_install_flow() {
+  local version
+  need_root || return 1
+  ui_title "Panel version - ${PANEL_DISPLAY}"
+  printf 'Installed version: %s\n\n' "$(panel_version)"
+  version="$(panel_choose_version)" || return 1
+  panel_version_install_selected "$version"
+}
+
+# Prints the published versions of the loaded panel.
+panel_version_list() {
+  local versions latest
+  printf 'Published versions of %s (source: %s)\n\n' \
+    "${PANEL_DISPLAY:-$PANEL_NAME}" "$(panel_source_repo "$PANEL_NAME")"
+  versions="$(panel_available_versions 5)" || return 1
+  [[ -n "$versions" ]] || {
+    err "No version of ${PANEL_DISPLAY:-$PANEL_NAME} could be listed."
+    return 1
+  }
+  latest="$(panel_latest_stable_version)" || latest=""
+  version_choices_lines "$versions" "$latest"
+  if ! panel_supports_version_pinning "$PANEL_NAME"; then
+    printf '\nThe official installer of %s always installs the newest release.\n' \
+      "${PANEL_DISPLAY:-$PANEL_NAME}"
+    printf 'BaToHub does not reimplement it, so only the newest release can be installed.\n'
+  fi
+  return 0
+}
+
+# The version entry of the panel menu.
+panel_version_menu() {
+  local choice
+  ui_title "Panel version - ${PANEL_DISPLAY}"
+  printf 'Installed version: %s\n' "$(panel_version)"
+  if panel_supports_version_pinning "$PANEL_NAME"; then
+    printf 'Version pinning: supported (%s)\n\n' "$(panel_version_pin_scope "$PANEL_NAME")"
+  else
+    printf 'Version pinning: not supported by the official installer\n\n'
+  fi
+  printf '1) Install or switch to a chosen version\n'
+  printf '2) List the published versions\n'
+  printf '0) Back\n'
+  choice="$(ui_menu_choice)"
+  case "$choice" in
+  1) panel_version_install_flow ;;
+  2) panel_version_list ;;
+  *) return 0 ;;
+  esac
+}
+
+# The update entry of the panel menu. When the panel can be pinned, the operator
+# chooses between the newest release and a specific version.
+panel_version_update_menu() {
+  local choice
+  if ! panel_supports_version_pinning "$PANEL_NAME"; then
+    panel_update
+    return $?
+  fi
+  ui_title "Panel update - ${PANEL_DISPLAY}"
+  printf 'Installed version: %s\n\n' "$(panel_version)"
+  printf '1) Update to the newest published release\n'
+  printf '2) Install or switch to a chosen version\n'
+  printf '0) Back\n'
+  choice="$(ui_menu_choice)"
+  case "$choice" in
+  1) panel_update ;;
+  2) panel_version_install_flow ;;
+  *) return 0 ;;
+  esac
+}
+
+# Runs the panel's installer with the argv the panel declares for a version.
+# The installer is downloaded over HTTPS and executed as supplied by its
+# author; BaToHub does not rewrite it and passes no credentials to it.
+panel_install_selected_version() {
+  local url="$1" version="${2:-}" argv=() line
+  panel_valid_version_string "$version" || return 1
+  need_root || return 1
+  while IFS= read -r line; do
+    argv+=("$line")
+  done < <(panel_version_installer_argv "$version")
+  if [[ "${#argv[@]}" -eq 0 ]]; then
+    err "${PANEL_DISPLAY:-$PANEL_NAME} declares no installer argument for version ${version}."
+    return 1
+  fi
+  printf 'Running the official installer of %s for version %s\n' \
+    "${PANEL_DISPLAY:-$PANEL_NAME}" "$version"
+  if ! panel_fetch_official_installer_args "$url" "${argv[@]}"; then
+    err "The ${PANEL_DISPLAY:-$PANEL_NAME} installer did not complete. Full output: ${LOG_FILE}"
+    return 1
+  fi
+  ok "The ${PANEL_DISPLAY:-$PANEL_NAME} installer finished for version ${version}."
+  return 0
 }

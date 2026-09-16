@@ -83,6 +83,29 @@ panel_status() {
   printf '%s\n' stopped
 }
 
+# --- Version selection ------------------------------------------------------
+#
+# The official Rebecca installer documents "--dev or --version vX.Y.Z" for both
+# install and update, so Rebecca can be pinned to any published release.
+
+panel_available_versions() { panel_versions_available "${1:-5}"; }
+
+panel_version_installer_argv() {
+  local version="$1" verb="install"
+  # The installer's update verb is the documented way to move an installed
+  # Rebecca to another release; install is used when nothing is installed yet.
+  if panel_detect; then
+    verb="update"
+  fi
+  if [[ "$version" == "$PANEL_DEV_CHANNEL_KEY" ]]; then
+    printf '%s\n' "$verb" --dev
+    return 0
+  fi
+  printf '%s\n' "$verb" --version "$version"
+}
+
+panel_install_version() { panel_install_selected_version "$REBECCA_INSTALLER_URL" "${1:-}"; }
+
 panel_install() {
   need_root || return 1
   printf 'Rebecca is installed with its own official installer.\n'
