@@ -85,6 +85,7 @@ What is in this release
 - Panel version detection and selection. Each panel lists the releases published by its own repository, and installs the release the operator chooses through that panel's own official installer. The newest stable release is the default, a development channel is offered where the installer declares one, and a panel whose installer always resolves the newest release is reported as not supporting version pinning rather than being pinned silently.
 - The installed version is read back after the operation and the change is recorded with a timestamp in /var/log/batohub/versions.log and in the panel log.
 - One tool module: Foxima, with detection, install, update, status, logs, configuration guidance, and removal limited to the changes BaToHub manages.
+- The installer makes every entry point under bin executable. The management bot is started by its own systemd unit, so its mode is set from the installer rather than taken from the archive.
 - Integrity manifest with a SHA-256 entry for every shipped file, and the optional INTEGRITY_HARD_FAIL setting that refuses to open the interface when a file differs from the manifest.
 - The tagged-source fallback is refused unless BATOHUB_ALLOW_UNVERIFIED_FALLBACK=1 is set, because no checksum is published for that archive.
 - Backup, restore and import with a checksummed archive and a member allowlist that rejects absolute paths, parent traversal, undeclared members, and links whose location or target leaves the destination roots, transactional restore and a safety backup.
@@ -96,7 +97,7 @@ What is in this release
 - Server tools: firewall rules, fail2ban jails and bans, BBR and TCP tuning, system limits, time zone and NTP, each reporting the current state before a change.
 - Docker: detection of whether a panel runs in a container, from a Compose stack or as a system service, with status, logs, restart, resource counters and image update following the detected mode.
 - Alerts: nine conditions covering panel state, nodes, certificates, an outdated panel version, disk, memory, CPU load, a stale backup and a failed update, delivered to Telegram, by email or to a webhook, with per-alert thresholds and cooldowns, and nothing enabled until an operator enables it.
-- Accounts and roles: several operator accounts with hashed passwords, six roles and twenty-two permissions, checked when the menu is built and again when an action runs, with every action recorded.
+- Accounts and roles: several operator accounts with hashed passwords, six roles and twenty-two permissions, checked when the menu is built and again when an action runs, with every action recorded. BaToHub admin login NAME compares a password with the stored hash and reports the result, so a stored password has a verification path.
 - Reports: ten reports rendered on screen or exported as CSV or JSON, with a retention policy for the exports.
 - Telegram bot: remote operation with thirteen commands, each mapped to a BaToHub account that holds the permissions that command needs, an unlisted user id refused without a reply, and every command and refusal recorded.
 - No telemetry, and no outbound call other than the downloads and the version listings the operator requests.
