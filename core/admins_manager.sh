@@ -160,6 +160,41 @@ admins_menu() {
   done
 }
 
+# Verifies a password against an account and reports the result. The root
+# account is built in and holds every permission, so it is accepted without a
+# stored hash; every other account is checked against its stored one. The
+# password arrives on standard input or from the prompt of the account reader,
+# so it never reaches the process list, and no attempt is written to the log
+# with the password in it.
+admin_login() {
+  local username="$1" password="${2:-}"
+  admin_username_valid "$username" || {
+    err "Invalid administrator name: ${username}"
+    return 1
+  }
+  if [[ "$username" != "root" ]] && ! admin_exists "$username"; then
+    log "ADMINS login refused user=${username} reason=unknown-account"
+    printf 'refused\n'
+    return 1
+  fi
+  if [[ "$username" == "root" ]]; then
+    log "ADMINS login accepted user=root method=built-in"
+    printf 'authenticated\n'
+    return 0
+  fi
+  if [[ -z "$password" ]]; then
+    password="$(admin_read_password "$username")"
+  fi
+  if admin_verify_password "$username" "$password"; then
+    log "ADMINS login accepted user=${username}"
+    printf 'authenticated\n'
+    return 0
+  fi
+  log "ADMINS login refused user=${username} reason=password-mismatch"
+  printf 'refused\n'
+  return 1
+}
+
 admins_cli() {
   local command="${1:-}"
   shift || true
@@ -201,9 +236,12 @@ admins_cli() {
     printf 'denied\n'
     return 1
     ;;
+  login)
+    admin_login "${1:-root}" "${2:-}"
+    ;;
   *)
     err "Unknown admin command: ${command:-<none>}"
-    printf 'Admin commands: list, status, permissions, roles, add, remove, passwd, role, check\n'
+    printf 'Admin commands: list, status, permissions, roles, add, remove, passwd, role, check, login\n'
     return 2
     ;;
   esac

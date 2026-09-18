@@ -378,6 +378,11 @@ STEP="permissions"
 chown -R root:root "$INSTALL_DIR" "$CONFIG_DIR" "$STATE_DIR" "$LOG_DIR"
 find "$INSTALL_DIR" -type d -exec chmod 0755 {} +
 find "$INSTALL_DIR" -type f -name '*.sh' -exec chmod 0755 {} +
+# Every entry point under bin/ is executed directly: the global command link, the
+# uninstaller, the management bot and the agent. The archive keeps the mode the
+# file had when it was packed, so the mode is set from here rather than being
+# relied upon.
+find "$INSTALL_DIR/bin" -maxdepth 1 -type f -exec chmod 0755 {} + 2>/dev/null || true
 chmod 0755 "${INSTALL_DIR}/bin/batohub" "${INSTALL_DIR}/bin/uninstall" 2>/dev/null || true
 chmod 0750 "$CONFIG_DIR" "$STATE_DIR" "$LOG_DIR"
 chmod 0755 "$INSTALL_DIR"

@@ -135,7 +135,7 @@ Additional sections:
   BaToHub --alerts CMD         status, check, run, schedule, unschedule, enable,
                                disable, threshold, types
   BaToHub admin CMD            list, status, permissions, roles, add, remove,
-                               passwd, role, check
+                               passwd, role, check, login NAME [PASSWORD]
   BaToHub --reports CMD        list, show, export, exports, rotate
   BaToHub --bot CMD            status, service, remove-service, logs, once, users, check
 
